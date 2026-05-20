@@ -13,9 +13,10 @@ export default defineConfig({
       // generateSW is simpler and more reliable than injectManifest for deployment
       strategies: 'generateSW',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api/],
         cleanupOutdatedCaches: true,
-        // Don't cache Supabase API calls
         runtimeCaching: [],
       },
       manifest: {

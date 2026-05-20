@@ -21,6 +21,7 @@ export default function StatsScreen({ onSettings }) {
 
   async function loadStats() {
     setLoading(true);
+    try {
     const today = todayString();
     const thirtyDaysAgo = addDays(today, -29);
 
@@ -109,7 +110,6 @@ export default function StatsScreen({ onSettings }) {
     const usedTraits = TRAITS.filter(t => traitMax[t] > 0 || traitEarned[t] > 0);
 
     setData({ totalXP, todayPts, streak, activeGoalsCount, completionRate, weekDates, weekPoints, today, usedTraits, traitEarned, traitMax });
-    setLoading(false);
 
     // Sync leaderboard
     const user = getUser();
@@ -119,9 +119,16 @@ export default function StatsScreen({ onSettings }) {
     }
 
     setLbLoading(true);
-    const lb = await fetchLeaderboard();
-    setLeaderboard(lb);
+    try {
+      const lb = await fetchLeaderboard();
+      setLeaderboard(lb);
+    } catch (_) {}
     setLbLoading(false);
+    } catch (e) {
+      console.warn('Stats load error:', e);
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (loading || !data) return <div className="flex-1 flex items-center justify-center"><div className="spinner" /></div>;

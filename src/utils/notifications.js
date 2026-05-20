@@ -23,12 +23,14 @@ export function getNotificationPermission() {
 
 // Show a notification immediately (used for testing / alerts when app is open)
 function showNow(title, body) {
-  if (Notification.permission !== 'granted') return;
-  if (navigator.serviceWorker?.controller) {
-    navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
-  } else {
-    new Notification(title, { body, icon: '/icons/icon-192.png' });
-  }
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body });
+    } else {
+      new Notification(title, { body, icon: '/icons/icon-192.png' });
+    }
+  } catch (_) {}
 }
 
 // ── Action reminders (weekly, per active day) ──────────────────────────────────
@@ -103,7 +105,7 @@ export function registerInAppScheduler() {
 }
 
 function checkSchedules() {
-  if (Notification.permission !== 'granted') return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const now = new Date();
   const nowDay = now.getDay();
   const nowHH = now.getHours();
