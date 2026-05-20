@@ -1,11 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { registerSW } from 'virtual:pwa-register';
 import './index.css';
 import App from './App.jsx';
 
-// Register service worker (auto-updates)
-registerSW({ onNeedRefresh() {}, onOfflineReady() {} });
+// Register service worker — wrapped so a SW failure never crashes the app
+try {
+  import('virtual:pwa-register').then(({ registerSW }) => {
+    registerSW({ onNeedRefresh() {}, onOfflineReady() {} });
+  }).catch(() => {});
+} catch (_) {}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
