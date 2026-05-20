@@ -58,14 +58,23 @@ export function calcConsistencyScore(goals, allActions, completionsIn30, today) 
 }
 
 export async function savePushSubscription({ user_id, endpoint, p256dh, auth, timezone, schedules }) {
-  if (!supabase) return;
+  console.log('[Push] savePushSubscription() called');
+  if (!supabase) {
+    console.error('[Push] Supabase client is null — VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY missing');
+    return;
+  }
   try {
-    await supabase.from('push_subscriptions').upsert(
+    const { error } = await supabase.from('push_subscriptions').upsert(
       { user_id, endpoint, p256dh, auth, timezone, schedules, updated_at: new Date().toISOString() },
       { onConflict: 'endpoint' }
     );
+    if (error) {
+      console.error('[Push] Supabase upsert error:', error.message, error.details, error.hint);
+    } else {
+      console.log('[Push] push_subscriptions row saved OK for user', user_id);
+    }
   } catch (e) {
-    console.warn('Push subscription save failed:', e.message);
+    console.error('[Push] savePushSubscription() threw unexpectedly:', e.message);
   }
 }
 

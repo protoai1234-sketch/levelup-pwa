@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getUser } from './utils/storage';
-import { registerInAppScheduler } from './utils/notifications';
+import { registerInAppScheduler, ensurePushSubscription } from './utils/notifications';
 import OnboardingScreen from './screens/OnboardingScreen';
 import DailyScreen from './screens/DailyScreen';
 import PlannerScreen from './screens/PlannerScreen';
@@ -28,6 +28,9 @@ export default function App() {
     const user = getUser();
     setOnboarded(!!(user?.displayName));
     registerInAppScheduler();
+    // Re-subscribe on every load so Supabase always has a current subscription row.
+    // Idempotent — reuses the existing push subscription if one is already active.
+    ensurePushSubscription();
   }, []);
 
   function navigate(screen, params = {}) { setSubscreen({ screen, params }); }

@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { getUser, saveUser } from '../utils/storage';
-import { getNotificationPermission } from '../utils/notifications';
+import { getNotificationPermission, getPushSubscriptionStatus } from '../utils/notifications';
 
 export default function SettingsScreen({ onBack }) {
   const [displayName, setDisplayName] = useState('');
   const [saved, setSaved] = useState(false);
   const [notifPerm, setNotifPerm] = useState('default');
+  const [pushStatus, setPushStatus] = useState('checking');
 
   useEffect(() => {
     const u = getUser();
     if (u?.displayName) setDisplayName(u.displayName);
     setNotifPerm(getNotificationPermission());
+    getPushSubscriptionStatus().then(setPushStatus);
   }, []);
 
   function handleSaveName() {
@@ -22,8 +24,33 @@ export default function SettingsScreen({ onBack }) {
     setTimeout(() => setSaved(false), 2000);
   }
 
-  const permColor = { granted: 'text-success', denied: 'text-destructive', default: 'text-textSecondary', unsupported: 'text-textMuted' };
-  const permLabel = { granted: 'Enabled', denied: 'Denied — open system settings to enable', default: 'Not yet requested', unsupported: 'Not supported on this device' };
+  const permColor = {
+    granted: 'text-success',
+    denied: 'text-destructive',
+    default: 'text-textSecondary',
+    unsupported: 'text-textMuted',
+  };
+  const permLabel = {
+    granted: 'Enabled',
+    denied: 'Denied — open system settings to enable',
+    default: 'Not yet requested',
+    unsupported: 'Not supported on this device',
+  };
+
+  const pushColor = {
+    active: 'text-success',
+    inactive: 'text-destructive',
+    unsupported: 'text-textMuted',
+    error: 'text-destructive',
+    checking: 'text-textMuted',
+  };
+  const pushLabel = {
+    active: 'Active',
+    inactive: 'Not registered',
+    unsupported: 'Requires home screen install',
+    error: 'Error — check console',
+    checking: 'Checking…',
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -57,14 +84,30 @@ export default function SettingsScreen({ onBack }) {
           <div className="card mb-4">
             <div className="section-label">Notifications</div>
             <div className="flex items-center justify-between py-2">
-              <span className="text-[14px] text-textSecondary">Permission status</span>
+              <span className="text-[14px] text-textSecondary">Permission</span>
               <span className={`text-[14px] font-semibold ${permColor[notifPerm] || 'text-textSecondary'}`}>
                 {permLabel[notifPerm] || notifPerm}
               </span>
             </div>
+            <div className="flex items-center justify-between py-2 border-t border-border">
+              <span className="text-[14px] text-textSecondary">Push delivery</span>
+              <span className={`text-[14px] font-semibold ${pushColor[pushStatus] || 'text-textSecondary'}`}>
+                {pushLabel[pushStatus] || pushStatus}
+              </span>
+            </div>
+            {notifPerm === 'granted' && pushStatus === 'inactive' && (
+              <p className="text-destructive text-[13px] mt-2 leading-relaxed">
+                Push subscription failed. Check the browser console for [Push] log entries to diagnose the error.
+              </p>
+            )}
             {notifPerm !== 'granted' && notifPerm !== 'unsupported' && (
               <p className="text-textMuted text-[13px] mt-2 leading-relaxed">
                 To enable notifications, open your browser or phone Settings and allow notifications for this site.
+              </p>
+            )}
+            {pushStatus === 'unsupported' && (
+              <p className="text-textMuted text-[13px] mt-2 leading-relaxed">
+                Background push requires the app to be added to your home screen on iOS 16.4 or later.
               </p>
             )}
           </div>
