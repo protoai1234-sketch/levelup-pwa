@@ -10,14 +10,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      // generateSW is simpler and more reliable than injectManifest for deployment
-      strategies: 'generateSW',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api/],
-        cleanupOutdatedCaches: true,
-        runtimeCaching: [],
       },
       manifest: {
         name: 'LevelUp',

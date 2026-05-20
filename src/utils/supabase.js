@@ -57,6 +57,18 @@ export function calcConsistencyScore(goals, allActions, completionsIn30, today) 
   return Math.round(((completionRate + onTrackRate) / 2) * 100);
 }
 
+export async function savePushSubscription({ user_id, endpoint, p256dh, auth, timezone, schedules }) {
+  if (!supabase) return;
+  try {
+    await supabase.from('push_subscriptions').upsert(
+      { user_id, endpoint, p256dh, auth, timezone, schedules, updated_at: new Date().toISOString() },
+      { onConflict: 'endpoint' }
+    );
+  } catch (e) {
+    console.warn('Push subscription save failed:', e.message);
+  }
+}
+
 export async function syncLeaderboard(userId, displayName, score) {
   if (!supabase) return;
   try {
