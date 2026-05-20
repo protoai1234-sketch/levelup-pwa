@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body, #root {
+  height: 100%;
+  height: -webkit-fill-available;
+  overflow: hidden;
+  background: #0F0F0F;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Safe area for iPhone home indicator */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.safe-top    { padding-top:    env(safe-area-inset-top, 0px); }
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 0; background: transparent; }
+
+/* Input / select reset */
+input, select, textarea {
+  background: #2C2C2E;
+  color: #fff;
+  border: 1.5px solid #3A3A3C;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  width: 100%;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: inherit;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+input::placeholder, textarea::placeholder { color: #8E8E93; }
+input[type="date"], input[type="time"] { color-scheme: dark; }
+input[type="number"] { -moz-appearance: textfield; }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+/* Checkbox — keep native */
+input[type="checkbox"] {
+  width: auto; padding: 0;
+  border: none; background: none; appearance: auto;
+}
+
+/* Slide-up animation for bottom sheets */
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.slide-up { animation: slideUp 0.25s cubic-bezier(0.32,0.72,0,1); }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.fade-in { animation: fadeIn 0.2s ease; }
+
+/* Touch feedback */
+button, [role="button"] { cursor: pointer; }
+
+/* ── Component utilities ───────────────────────────────────────── */
+
+.btn-primary {
+  background: #185FA5;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 12px;
+  padding: 14px 20px;
+  border: none;
+  text-align: center;
+  display: block;
+  width: 100%;
+}
+.btn-primary:disabled { opacity: 0.5; }
+
+.dashed-btn {
+  border: 1.5px dashed #185FA5;
+  color: #185FA5;
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: 10px;
+  padding: 10px 20px;
+  background: transparent;
+  text-align: center;
+}
+
+.card {
+  background: #1C1C1E;
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid #3A3A3C;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #8E8E93;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #8E8E93;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+}
+
+.field-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8E8E93;
+  margin-bottom: 6px;
+  margin-top: 16px;
+}
+
+.chip {
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1.5px solid #3A3A3C;
+  background: #2C2C2E;
+  color: #8E8E93;
+  font-size: 13px;
+  font-weight: 500;
+}
+.chip-active {
+  background: #185FA5;
+  border-color: #185FA5;
+  color: #fff;
+  font-weight: 700;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid #3A3A3C;
+  border-top-color: #185FA5;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
