@@ -4,7 +4,12 @@ import { getDatesInRange, isActiveDay, isVacationDay, addDays } from './dateHelp
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Log Supabase config on every page load so it's visible in the console
+console.log('[Supabase] VITE_SUPABASE_URL:', url ? `${url.slice(0, 30)}…` : 'MISSING');
+console.log('[Supabase] VITE_SUPABASE_ANON_KEY:', key ? `set (${key.length} chars)` : 'MISSING');
+
 export const supabase = url && key ? createClient(url, key) : null;
+console.log('[Supabase] client:', supabase ? 'initialized' : 'NULL — both env vars required');
 
 const CACHE_KEY = 'levelup_leaderboard_cache';
 
@@ -60,26 +65,47 @@ export function calcConsistencyScore(goals, allActions, completionsIn30, today) 
 // Returns { ok: true } or { ok: false, error: string }
 export async function savePushSubscription({ user_id, endpoint, p256dh, auth, timezone, schedules }) {
   console.log('[Push] savePushSubscription() called');
+  console.log('[Push] user_id:', user_id);
+  console.log('[Push] endpoint:', endpoint ? endpoint.slice(0, 50) + '…' : 'undefined');
+  console.log('[Push] p256dh:', p256dh ? `set (${p256dh.length} chars)` : 'undefined');
+  console.log('[Push] auth:', auth ? `set (${auth.length} chars)` : 'undefined');
+  console.log('[Push] timezone:', timezone);
+  console.log('[Push] schedules count:', Array.isArray(schedules) ? schedules.length : typeof schedules);
+
   if (!supabase) {
-    const err = 'Supabase client is null — check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel env vars';
+    const err = `Supabase client is null — VITE_SUPABASE_URL: ${url ? 'set' : 'MISSING'}, VITE_SUPABASE_ANON_KEY: ${key ? 'set' : 'MISSING'}`;
     console.error('[Push]', err);
     return { ok: false, error: err };
   }
+
   try {
-    const { error } = await supabase.from('push_subscriptions').upsert(
-      { user_id, endpoint, p256dh, auth, timezone, schedules, updated_at: new Date().toISOString() },
-      { onConflict: 'endpoint' }
-    );
+    console.log('[Push] Calling supabase.from(push_subscriptions).upsert() …');
+    const { data, error } = await supabase
+      .from('push_subscriptions')
+      .upsert(
+        { user_id, endpoint, p256dh, auth, timezone, schedules, updated_at: new Date().toISOString() },
+        { onConflict: 'endpoint' }
+      );
+
     if (error) {
-      const err = [error.message, error.details, error.hint].filter(Boolean).join(' — ');
-      console.error('[Push] Supabase upsert error:', err);
+      // Dump the full raw error object — sometimes message is empty but code/details aren't
+      console.error('[Push] Supabase error raw:', JSON.stringify(error));
+      const parts = [
+        error.code    ? `code=${error.code}`         : null,
+        error.message ? `msg="${error.message}"`     : null,
+        error.details ? `details="${error.details}"` : null,
+        error.hint    ? `hint="${error.hint}"`        : null,
+      ].filter(Boolean);
+      const err = parts.length ? parts.join(' | ') : `Unknown error: ${JSON.stringify(error)}`;
+      console.error('[Push] savePushSubscription failed:', err);
       return { ok: false, error: err };
     }
-    console.log('[Push] push_subscriptions row saved OK for user', user_id);
+
+    console.log('[Push] Upsert succeeded. Returned data:', JSON.stringify(data));
     return { ok: true };
   } catch (e) {
-    console.error('[Push] savePushSubscription() threw:', e.message);
-    return { ok: false, error: e.message };
+    console.error('[Push] savePushSubscription() threw:', e.name, e.message, e.stack);
+    return { ok: false, error: `${e.name}: ${e.message}` };
   }
 }
 
