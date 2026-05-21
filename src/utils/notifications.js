@@ -152,6 +152,106 @@ async function syncSchedulesToServer() {
   });
 }
 
+// ── Debug: step-by-step push diagnostic ───────────────────────────────────────
+// onStep({ label, ok, detail }) is called after each step so the UI can update
+// incrementally without waiting for the whole flow to finish.
+export async function debugPushSubscription(onStep) {
+  function step(label, ok, detail = '') {
+    console.log(`[Push] Debug — ${label}: ${ok ? 'OK' : 'FAIL'}${detail ? ` | ${detail}` : ''}`);
+    onStep({ label, ok, detail });
+  }
+
+  // 1. Service worker supported
+  const swOk = 'serviceWorker' in navigator;
+  step('Service worker supported', swOk, swOk ? '' : 'navigator.serviceWorker not available');
+
+  // 2. PushManager supported
+  const pmOk = 'PushManager' in window;
+  step('PushManager supported', pmOk, pmOk ? '' : 'Requires app installed to home screen — iOS 16.4+');
+
+  // 3. Notification permission
+  const notifInWindow = 'Notification' in window;
+  const perm = notifInWindow ? Notification.permission : 'unsupported';
+  step('Notification permission', perm === 'granted', perm);
+
+  // 4. VAPID key
+  step(
+    'VAPID key loaded',
+    !!VAPID_PUBLIC_KEY,
+    VAPID_PUBLIC_KEY
+      ? `${VAPID_PUBLIC_KEY.slice(0, 10)}… (${VAPID_PUBLIC_KEY.length} chars)`
+      : 'MISSING — add VITE_VAPID_PUBLIC_KEY to Vercel env vars and redeploy'
+  );
+
+  if (!swOk) return;
+
+  // 5. Service worker registered
+  let reg = null;
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    reg = regs[0] ?? null;
+    step('Service worker registered', !!reg, reg ? `scope: ${reg.scope}` : 'No SW registrations found — try closing and reopening the app');
+  } catch (e) {
+    step('Service worker registered', false, e.message);
+    return;
+  }
+
+  // 6. Service worker active
+  const activeWorker = reg?.active ?? null;
+  step(
+    'Service worker active',
+    !!activeWorker,
+    activeWorker
+      ? `state: ${activeWorker.state}`
+      : reg
+        ? 'SW registered but not yet active — close and reopen the app'
+        : 'No registration'
+  );
+
+  // Only attempt subscribe if prerequisites are met
+  if (!pmOk || perm !== 'granted' || !VAPID_PUBLIC_KEY) return;
+
+  // 7. Push subscription
+  let sub = null;
+  try {
+    const ready = await navigator.serviceWorker.ready;
+    sub = await ready.pushManager.getSubscription();
+    if (sub) {
+      step('Push subscription created', true, `existing — ${sub.endpoint.slice(0, 40)}…`);
+    } else {
+      sub = await ready.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      step('Push subscription created', true, `new — ${sub.endpoint.slice(0, 40)}…`);
+    }
+  } catch (e) {
+    step('Push subscription created', false, `${e.name}: ${e.message}`);
+    return;
+  }
+
+  // 8. Save to Supabase
+  const user = getUser();
+  if (!user?.userId) {
+    step('Subscription saved to Supabase', false, 'No user ID — complete onboarding first');
+    return;
+  }
+  const json = sub.toJSON();
+  const result = await savePushSubscription({
+    user_id: user.userId,
+    endpoint: json.endpoint,
+    p256dh: json.keys.p256dh,
+    auth: json.keys.auth,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    schedules: loadSchedules(),
+  });
+  step(
+    'Subscription saved to Supabase',
+    result?.ok === true,
+    result?.ok ? `saved for user ${user.userId}` : (result?.error ?? 'unknown error')
+  );
+}
+
 // Called on every app load and after permission is granted.
 // Idempotent — re-uses existing subscription if one exists.
 export async function ensurePushSubscription() {

@@ -57,11 +57,13 @@ export function calcConsistencyScore(goals, allActions, completionsIn30, today) 
   return Math.round(((completionRate + onTrackRate) / 2) * 100);
 }
 
+// Returns { ok: true } or { ok: false, error: string }
 export async function savePushSubscription({ user_id, endpoint, p256dh, auth, timezone, schedules }) {
   console.log('[Push] savePushSubscription() called');
   if (!supabase) {
-    console.error('[Push] Supabase client is null — VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY missing');
-    return;
+    const err = 'Supabase client is null — check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel env vars';
+    console.error('[Push]', err);
+    return { ok: false, error: err };
   }
   try {
     const { error } = await supabase.from('push_subscriptions').upsert(
@@ -69,12 +71,15 @@ export async function savePushSubscription({ user_id, endpoint, p256dh, auth, ti
       { onConflict: 'endpoint' }
     );
     if (error) {
-      console.error('[Push] Supabase upsert error:', error.message, error.details, error.hint);
-    } else {
-      console.log('[Push] push_subscriptions row saved OK for user', user_id);
+      const err = [error.message, error.details, error.hint].filter(Boolean).join(' — ');
+      console.error('[Push] Supabase upsert error:', err);
+      return { ok: false, error: err };
     }
+    console.log('[Push] push_subscriptions row saved OK for user', user_id);
+    return { ok: true };
   } catch (e) {
-    console.error('[Push] savePushSubscription() threw unexpectedly:', e.message);
+    console.error('[Push] savePushSubscription() threw:', e.message);
+    return { ok: false, error: e.message };
   }
 }
 
