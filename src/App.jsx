@@ -69,6 +69,8 @@ export default function App() {
       <AppShell>
         <GoalChatScreen
           onBack={goBack}
+          editGoalId={subscreen.params?.editGoalId}
+          editGoal={subscreen.params?.editGoal}
           onGoalCreated={() => { setTab('goals'); setSubscreen(null); }}
         />
       </AppShell>

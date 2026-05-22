@@ -183,15 +183,22 @@ export default function DailyScreen() {
     for (const goal of goals) {
       const activeDays = Array.isArray(goal.activeDays) ? goal.activeDays : JSON.parse(goal.activeDays || '[]');
       const vacationDays = Array.isArray(goal.vacationDays) ? goal.vacationDays : JSON.parse(goal.vacationDays || '[]');
-      if (today >= goal.startDate && isActiveDay(today, activeDays) && !isVacationDay(today, vacationDays)) {
+      const inRange = today >= goal.startDate;
+      const activeDay = isActiveDay(today, activeDays);
+      const onVacation = isVacationDay(today, vacationDays);
+      if (inRange && activeDay && !onVacation) {
         const allActions = getActionsForGoal(goal.id);
         // Filter day-specific actions — show only today's if dayOfWeek is set
-        const actions = allActions.filter(a =>
-          a.dayOfWeek === null || a.dayOfWeek === undefined || Number(a.dayOfWeek) === todayDayOfWeek
-        );
+        const actions = allActions.filter(a => {
+          const dow = a.dayOfWeek;
+          return dow === null || dow === undefined || String(dow) === 'null' || Number(dow) === todayDayOfWeek;
+        });
         if (actions.length > 0) activeGroups.push({ ...goal, actions });
+      } else {
+        console.log(`[Daily] Goal "${goal.title}" skipped — inRange:${inRange} activeDay:${activeDay} onVacation:${onVacation} startDate:${goal.startDate} activeDays:${JSON.stringify(activeDays)}`);
       }
     }
+    console.log(`[Daily] Today=${today} (dow=${todayDayOfWeek}), ${goals.length} goals, ${activeGroups.length} active, ${activeGroups.reduce((s, g) => s + g.actions.length, 0)} actions`);
 
     setGoalGroups(activeGroups);
     setHabits(rawHabits);

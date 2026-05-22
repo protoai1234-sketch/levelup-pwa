@@ -72,6 +72,10 @@ export function updateGoal(id, g) {
     activeDays:   Array.isArray(g.activeDays)   ? g.activeDays   : JSON.parse(g.activeDays   || '[]'),
     vacationDays: Array.isArray(g.vacationDays) ? g.vacationDays : JSON.parse(g.vacationDays || '[]'),
     traits:       Array.isArray(g.traits)        ? g.traits       : JSON.parse(g.traits        || '[]'),
+    goalType:     g.goalType || goals[idx].goalType || 'general',
+    weeklyPlan:   g.weeklyPlan !== undefined
+      ? (typeof g.weeklyPlan === 'string' ? JSON.parse(g.weeklyPlan || 'null') : g.weeklyPlan)
+      : goals[idx].weeklyPlan,
   };
   save(KEYS.goals, goals);
 }

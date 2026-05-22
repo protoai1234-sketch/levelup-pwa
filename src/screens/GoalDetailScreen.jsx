@@ -46,7 +46,7 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card flex-shrink-0">
         <button onClick={onBack} className="text-primary font-semibold text-[15px]">‹ Goals</button>
         <span className="flex-1 text-textPrimary font-bold text-center truncate">{goal.title}</span>
-        <button onClick={() => onNavigate('add-goal', { goal })} className="text-primary font-semibold text-[15px]">Edit</button>
+        <button onClick={() => onNavigate('add-goal', { goal })} className="text-primary font-semibold text-[15px]">Manual</button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -111,7 +111,13 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
             {actions.length === 0 && <p className="text-textMuted italic text-[14px]">No actions defined.</p>}
           </div>
 
-          <button onClick={() => onNavigate('add-goal', { goal })} className="btn-primary w-full mb-3">Edit Goal</button>
+          <button
+            onClick={() => onNavigate('goal-chat', { editGoalId: goalId, editGoal: goal })}
+            className="btn-primary w-full mb-3 flex items-center justify-center gap-2"
+          >
+            <span>✨</span><span>Edit with AI</span>
+          </button>
+          <button onClick={() => onNavigate('add-goal', { goal })} className="w-full border border-border rounded-xl py-3.5 text-textSecondary font-semibold text-[15px] mb-3">Edit Manually</button>
 
           {confirmDelete ? (
             <div className="card text-center">
