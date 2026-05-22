@@ -5,64 +5,36 @@ const EDGE_FN_URL = 'https://bnfhcwzyaxtitgoydrmz.functions.supabase.co/goal-cha
 
 export const SYSTEM_PROMPT = `You are a goal-setting coach inside the LevelUp app — a personal productivity app that turns life into a game. Your job is to help users set up meaningful long-term goals by having a friendly, encouraging conversation. Ask focused questions one or two at a time — never overwhelm the user. Detect the goal type from their first message and go deeper with relevant questions. For fitness goals build a complete weekly workout split. For sales goals calculate the exact daily activity needed to hit their target. For nutrition goals set up specific daily numeric targets. Keep responses concise and conversational — no long paragraphs. Use encouraging language. Once you have enough information tell the user you are ready to build their goal. Never ask more than 6-8 questions total before offering to build. When you have gathered enough information and are ready to build the goal, end your message with exactly: [READY_TO_BUILD]`;
 
-function anonKey() {
-  return import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
-}
-
-function headers() {
+function authHeaders() {
   return {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${anonKey()}`,
+    'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY ?? ''}`,
   };
 }
 
-// Chat mode — streams SSE chunks, calls onChunk(text) for each delta, returns full text.
-export async function sendGoalChat(messages, onChunk) {
+async function callEdgeFn(body) {
   const res = await fetch(EDGE_FN_URL, {
     method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ messages, systemPrompt: SYSTEM_PROMPT, mode: 'chat' }),
+    headers: authHeaders(),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(err.error || `Request failed with status ${res.status}`);
+    throw new Error(err.error || `Edge function returned ${res.status}`);
   }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let fullText = '';
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const payload = line.slice(6).trim();
-      if (payload === '[DONE]' || !payload) continue;
-      try {
-        const parsed = JSON.parse(payload);
-        if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
-          const chunk = parsed.delta.text;
-          fullText += chunk;
-          onChunk?.(chunk, fullText);
-        }
-      } catch {
-        // ignore malformed SSE lines
-      }
-    }
-  }
-
-  return fullText;
+  return res.json();
 }
 
-// Generate mode — returns parsed goal JSON object.
+// Returns the assistant's reply text.
+export async function sendGoalChat(messages) {
+  const data = await callEdgeFn({ messages, systemPrompt: SYSTEM_PROMPT, mode: 'chat' });
+  if (data.error) throw new Error(data.error);
+  return data.response ?? '';
+}
+
+// Returns parsed goal JSON object.
 export async function buildGoalFromConversation(messages) {
   const today = new Date().toISOString().slice(0, 10);
   const buildPrompt = `Based on our entire conversation, generate the complete goal configuration as a JSON object. Return ONLY raw JSON — no markdown fences, no code fences, no explanation. Use this exact schema:
@@ -103,23 +75,12 @@ Rules:
 - Point values: 10-20 easy, 30-50 moderate, 60-100 hard effort per action
 - Generate specific, actionable action names — not generic ones`;
 
-  const res = await fetch(EDGE_FN_URL, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({
-      messages: [...messages, { role: 'user', content: buildPrompt }],
-      systemPrompt: SYSTEM_PROMPT,
-      mode: 'generate',
-    }),
+  const data = await callEdgeFn({
+    messages: [...messages, { role: 'user', content: buildPrompt }],
+    systemPrompt: SYSTEM_PROMPT,
+    mode: 'generate',
   });
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(err.error || `Request failed with status ${res.status}`);
-  }
-
-  const { text } = await res.json();
-  const raw = (text ?? '').trim()
-    .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-  return JSON.parse(raw);
+  if (data.error) throw new Error(data.error);
+  return data; // edge function already parsed and returned the goal object
 }
