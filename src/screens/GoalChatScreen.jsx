@@ -67,6 +67,35 @@ function validateGoalData(raw) {
   };
 }
 
+// Scans API messages for a time the user gave in response to the notification question.
+// Returns HH:MM (24h) string if found, null otherwise.
+function extractNotifTime(apiMessages) {
+  let pastReminderQuestion = false;
+  for (const msg of apiMessages) {
+    if (msg.role === 'assistant' &&
+        (msg.content.toLowerCase().includes('reminder') || msg.content.toLowerCase().includes('notification'))) {
+      pastReminderQuestion = true;
+    }
+    if (pastReminderQuestion && msg.role === 'user') {
+      const text = msg.content;
+      // HH:MM already in 24h format
+      const hh24 = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(text);
+      if (hh24) return hh24[0].padStart(5, '0').slice(0, 5);
+      // 7am / 7:30 PM / 6 am etc.
+      const ampm = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i.exec(text);
+      if (ampm) {
+        let h = parseInt(ampm[1], 10);
+        const m = ampm[2] ? parseInt(ampm[2], 10) : 0;
+        const p = ampm[3].toLowerCase();
+        if (p === 'pm' && h !== 12) h += 12;
+        if (p === 'am' && h === 12) h = 0;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      }
+    }
+  }
+  return null;
+}
+
 function MessageBubble({ msg }) {
   const isAI = msg.role === 'assistant';
   return (
@@ -130,6 +159,17 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
 
     try {
       const raw = await buildGoalFromConversation(apiMessages);
+      console.log('[GoalSave] Parsed goal JSON:', JSON.stringify(raw, null, 2));
+
+      // If the AI missed the notification fields, patch them from the conversation
+      const notifTime = extractNotifTime(apiMessages);
+      if (notifTime && Array.isArray(raw.dailyActions)) {
+        raw.dailyActions = raw.dailyActions.map(a =>
+          a.notificationEnabled ? a : { ...a, notificationEnabled: true, notificationTime: a.notificationTime || notifTime }
+        );
+        console.log('[GoalSave] Patched notification time from conversation:', notifTime);
+      }
+
       setBuildingStep('Saving your goal…');
       const goal = validateGoalData(raw);
 

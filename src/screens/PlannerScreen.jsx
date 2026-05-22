@@ -173,7 +173,7 @@ export default function PlannerScreen() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   useEffect(() => {
-    if (selectedDate === today) autoPopulatePlannerForDate(selectedDate);
+    autoPopulatePlannerForDate(selectedDate);
     loadData();
   }, [selectedDate]);
 
