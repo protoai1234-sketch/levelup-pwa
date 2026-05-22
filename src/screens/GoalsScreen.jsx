@@ -7,6 +7,7 @@ export default function GoalsScreen({ onNavigate }) {
   const [actions, setActions] = useState({});
   const [completions, setCompletions] = useState({});
   const [loading, setLoading] = useState(true);
+  const [showAddChoice, setShowAddChoice] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -57,9 +58,38 @@ export default function GoalsScreen({ onNavigate }) {
               onPress={() => onNavigate('goal-detail', { goalId: goal.id })}
             />
           ))}
-          <button onClick={() => onNavigate('add-goal')} className="btn-primary w-full">+ Add Goal</button>
+          <button onClick={() => setShowAddChoice(true)} className="btn-primary w-full">+ Add Goal</button>
         </div>
       </div>
+
+      {/* Add goal choice modal */}
+      {showAddChoice && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowAddChoice(false)} />
+          <div className="relative bg-card rounded-t-[20px] border-t border-border p-5 w-full max-w-app slide-up">
+            <p className="text-textPrimary font-bold text-[17px] mb-1 text-center">Add a Goal</p>
+            <p className="text-textSecondary text-[13px] text-center mb-5">Let AI build it for you, or set it up manually.</p>
+            <button
+              onClick={() => { setShowAddChoice(false); onNavigate('goal-chat'); }}
+              className="btn-primary w-full mb-3 flex items-center justify-center gap-2"
+            >
+              <span>✨</span><span>AI Goal Assistant</span>
+            </button>
+            <button
+              onClick={() => { setShowAddChoice(false); onNavigate('add-goal'); }}
+              className="w-full border border-border rounded-xl py-3 text-textSecondary font-semibold text-[15px]"
+            >
+              Add Manually
+            </button>
+            <button
+              onClick={() => setShowAddChoice(false)}
+              className="w-full mt-2 py-2 text-textMuted text-[14px]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -48,7 +48,18 @@ create policy "Update own row"
 
 ---
 
-## 2 · Deploy to Vercel
+## 2 · Get a Claude API key (for AI Goal Assistant)
+
+1. Go to [console.anthropic.com](https://console.anthropic.com) and sign in or create an account.
+2. Navigate to **API Keys** and click **Create Key**.
+3. Copy the key — it starts with `sk-ant-...`.
+4. Add it as `VITE_CLAUDE_API_KEY` in your Vercel project environment variables (see Step 3 below).
+
+> **Note:** The key is embedded in the client-side bundle because this is a personal PWA. Do not share your deployed URL publicly if you want to keep your API key usage private.
+
+---
+
+## 3 · Deploy to Vercel
 
 ### Option A — GitHub (recommended)
 
@@ -65,6 +76,7 @@ create policy "Update own row"
 3. In the **Environment Variables** section add:
    - `VITE_SUPABASE_URL` = your Supabase project URL
    - `VITE_SUPABASE_ANON_KEY` = your Supabase anon key
+   - `VITE_CLAUDE_API_KEY` = your Anthropic API key (sk-ant-...)
 
 4. Click **Deploy**. Vercel auto-detects Vite and uses `npm run build` / `dist`.
 

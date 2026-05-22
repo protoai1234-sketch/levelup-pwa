@@ -8,6 +8,7 @@ import TodosScreen from './screens/TodosScreen';
 import GoalsScreen from './screens/GoalsScreen';
 import AddGoalScreen from './screens/AddGoalScreen';
 import GoalDetailScreen from './screens/GoalDetailScreen';
+import GoalChatScreen from './screens/GoalChatScreen';
 import StatsScreen from './screens/StatsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
@@ -60,6 +61,16 @@ export default function App() {
     return (
       <AppShell>
         <GoalDetailScreen goalId={subscreen.params.goalId} onNavigate={navigate} onBack={goBack} />
+      </AppShell>
+    );
+  }
+  if (subscreen?.screen === 'goal-chat') {
+    return (
+      <AppShell>
+        <GoalChatScreen
+          onBack={goBack}
+          onGoalCreated={() => { setTab('goals'); setSubscreen(null); }}
+        />
       </AppShell>
     );
   }

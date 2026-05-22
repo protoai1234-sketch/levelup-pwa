@@ -54,6 +54,8 @@ export function insertGoal(g) {
     activeDays:   Array.isArray(g.activeDays)   ? g.activeDays   : JSON.parse(g.activeDays   || '[]'),
     vacationDays: Array.isArray(g.vacationDays) ? g.vacationDays : JSON.parse(g.vacationDays || '[]'),
     traits:       Array.isArray(g.traits)        ? g.traits       : JSON.parse(g.traits        || '[]'),
+    goalType:     g.goalType || 'general',
+    weeklyPlan:   typeof g.weeklyPlan === 'string' ? JSON.parse(g.weeklyPlan || 'null') : (g.weeklyPlan || null),
     notificationsEnabled: 0, notificationTime: null, notificationIds: '[]',
     createdAt: nowStr(),
   });
@@ -143,6 +145,12 @@ export function deleteCompletion(actionId, date) {
   save(KEYS.completions, load(KEYS.completions).filter(
     c => !(c.actionId === actionId && c.completedDate === date)
   ));
+}
+
+export function updateCompletionNote(actionId, date, workoutNote) {
+  const completions = load(KEYS.completions);
+  const idx = completions.findIndex(c => c.actionId === actionId && c.completedDate === date);
+  if (idx !== -1) { completions[idx].workoutNote = workoutNote; save(KEYS.completions, completions); }
 }
 
 export function getCompletionsInRange(startDate, endDate) {
