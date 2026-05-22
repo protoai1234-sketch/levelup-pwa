@@ -81,6 +81,7 @@ export default function App() {
           {tab === 'goals'   && <GoalsScreen onNavigate={navigate} />}
           {tab === 'stats'   && <StatsScreen onSettings={() => navigate('settings')} />}
         </div>
+        <div className="flex-shrink-0" style={{ height: 'calc(50px + env(safe-area-inset-bottom, 0px))' }} />
         <TabBar active={tab} onChange={handleTabChange} />
       </div>
     </div>
@@ -99,7 +100,7 @@ function AppShell({ children }) {
 
 function TabBar({ active, onChange }) {
   return (
-    <nav className="flex-shrink-0 bg-card border-t border-border safe-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 bg-card border-t border-border z-10 safe-bottom">
       <div className="flex max-w-app mx-auto">
         {TABS.map(t => (
           <button

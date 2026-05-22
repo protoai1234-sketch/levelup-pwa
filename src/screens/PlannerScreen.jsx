@@ -45,7 +45,7 @@ function PlannerRow({ item, onComplete, onDelete }) {
       </button>
       {/* Row */}
       <div
-        className={`flex items-center gap-3 px-3.5 py-3 bg-card ${item.completed ? 'opacity-50' : ''}`}
+        className="flex items-center gap-3 px-3.5 py-3 bg-card"
         style={{ transform: `translateX(${swipeX}px)`, transition: startX.current ? 'none' : 'transform 0.2s ease' }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
