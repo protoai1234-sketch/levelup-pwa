@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { getUser } from './utils/storage';
 import { registerInAppScheduler, ensurePushSubscription } from './utils/notifications';
+import { autoPopulatePlannerForDate } from './utils/plannerUtils';
+import { todayString } from './utils/dateHelpers';
 import OnboardingScreen from './screens/OnboardingScreen';
-import DailyScreen from './screens/DailyScreen';
 import PlannerScreen from './screens/PlannerScreen';
 import TodosScreen from './screens/TodosScreen';
 import GoalsScreen from './screens/GoalsScreen';
@@ -13,25 +14,24 @@ import StatsScreen from './screens/StatsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
 const TABS = [
-  { id: 'daily',   label: 'Daily',    icon: '☀️' },
-  { id: 'planner', label: 'Planner',  icon: '📋' },
-  { id: 'todos',   label: "To-Do's",  icon: '✅' },
-  { id: 'goals',   label: 'Goals',    icon: '🎯' },
-  { id: 'stats',   label: 'Stats',    icon: '📊' },
+  { id: 'planner', label: 'Planner', icon: '📋' },
+  { id: 'todos',   label: "To-Do's", icon: '✅' },
+  { id: 'goals',   label: 'Goals',   icon: '🎯' },
+  { id: 'stats',   label: 'Stats',   icon: '📊' },
 ];
 
 export default function App() {
   const [onboarded, setOnboarded] = useState(null);
-  const [tab, setTab] = useState('daily');
+  const [tab, setTab] = useState('planner');
   const [subscreen, setSubscreen] = useState(null);
 
   useEffect(() => {
     const user = getUser();
     setOnboarded(!!(user?.displayName));
     registerInAppScheduler();
-    // Re-subscribe on every load so Supabase always has a current subscription row.
-    // Idempotent — reuses the existing push subscription if one is already active.
     ensurePushSubscription();
+    // Auto-populate today's goal actions into the Planner on every app open
+    autoPopulatePlannerForDate(todayString());
   }, []);
 
   function navigate(screen, params = {}) { setSubscreen({ screen, params }); }
@@ -71,7 +71,12 @@ export default function App() {
           onBack={goBack}
           editGoalId={subscreen.params?.editGoalId}
           editGoal={subscreen.params?.editGoal}
-          onGoalCreated={() => { setTab('goals'); setSubscreen(null); }}
+          onGoalCreated={() => {
+            // Auto-populate today's actions from the newly created/updated goal
+            autoPopulatePlannerForDate(todayString());
+            setTab('planner');
+            setSubscreen(null);
+          }}
         />
       </AppShell>
     );
@@ -88,7 +93,6 @@ export default function App() {
     <div className="fixed inset-0 bg-bg overflow-hidden flex flex-col">
       <div className="flex-1 max-w-app mx-auto w-full overflow-hidden flex flex-col">
         <div className="flex-1 overflow-hidden flex flex-col safe-top">
-          {tab === 'daily'   && <DailyScreen />}
           {tab === 'planner' && <PlannerScreen />}
           {tab === 'todos'   && <TodosScreen />}
           {tab === 'goals'   && <GoalsScreen onNavigate={navigate} />}

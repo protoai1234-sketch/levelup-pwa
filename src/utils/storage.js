@@ -2,15 +2,17 @@
 // and return plain values (not Promises) unless noted.
 
 const KEYS = {
-  goals:       'levelup_goals',
-  actions:     'levelup_daily_actions',
-  completions: 'levelup_action_completions',
-  habits:      'levelup_habits',
-  habitLogs:   'levelup_habit_logs',
-  todos:       'levelup_todos',
-  planner:     'levelup_planner_items',
-  pointLog:    'levelup_point_log',
-  user:        'levelup_user',
+  goals:        'levelup_goals',
+  actions:      'levelup_daily_actions',
+  completions:  'levelup_action_completions',
+  habits:       'levelup_habits',
+  habitLogs:    'levelup_habit_logs',
+  todos:        'levelup_todos',
+  planner:      'levelup_planner_items',
+  pointLog:     'levelup_point_log',
+  user:         'levelup_user',
+  badHabits:    'levelup_bad_habits',
+  badHabitLogs: 'levelup_bad_habit_logs',
 };
 
 function load(key, fallback = []) {
@@ -268,6 +270,12 @@ export function deletePlannerItem(id) {
   save(KEYS.planner, load(KEYS.planner).filter(i => i.id !== id));
 }
 
+export function updatePlannerItemStartTime(id, startTime) {
+  const items = load(KEYS.planner);
+  const idx = items.findIndex(i => i.id === id);
+  if (idx !== -1) { items[idx].startTime = startTime; save(KEYS.planner, items); }
+}
+
 // ── Point Log ──────────────────────────────────────────────────────────────────
 
 export function insertPointLog(entry) {
@@ -322,4 +330,39 @@ export function getStreak(today) {
 
 export function getLogsInRange(startDate, endDate) {
   return load(KEYS.pointLog).filter(e => e.logDate >= startDate && e.logDate <= endDate);
+}
+
+// ── Bad Habits ─────────────────────────────────────────────────────────────────
+
+export function getBadHabits() {
+  return load(KEYS.badHabits).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function insertBadHabit(h) {
+  const habits = load(KEYS.badHabits);
+  const id = nextId(habits);
+  habits.push({ id, name: String(h.name || '').trim(), pointValue: Math.abs(parseInt(h.pointValue, 10) || 15), createdAt: nowStr() });
+  save(KEYS.badHabits, habits);
+  return id;
+}
+
+export function deleteBadHabit(id) {
+  save(KEYS.badHabits,    load(KEYS.badHabits).filter(h => h.id !== id));
+  save(KEYS.badHabitLogs, load(KEYS.badHabitLogs).filter(l => l.habitId !== id));
+}
+
+export function getBadHabitLogsForDate(date) {
+  return load(KEYS.badHabitLogs).filter(l => l.logDate === date);
+}
+
+export function insertBadHabitLog(habitId, date) {
+  const logs = load(KEYS.badHabitLogs);
+  const id = nextId(logs);
+  logs.push({ id, habitId, logDate: date, createdAt: nowStr() });
+  save(KEYS.badHabitLogs, logs);
+  return id;
+}
+
+export function deleteBadHabitLog(habitId, date) {
+  save(KEYS.badHabitLogs, load(KEYS.badHabitLogs).filter(l => !(l.habitId === habitId && l.logDate === date)));
 }
