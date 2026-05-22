@@ -3,6 +3,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Strict system prompt used only for the generate call — overrides whatever the frontend sends
+const GENERATE_SYSTEM =
+  'You must respond with only a valid JSON object. No text before or after. No markdown. No backticks. Just the raw JSON.';
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -19,6 +23,8 @@ Deno.serve(async (req) => {
       );
     }
 
+    const isGenerate = mode === 'generate';
+
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -28,8 +34,9 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
-        max_tokens: 1000,
-        system: systemPrompt,
+        max_tokens: isGenerate ? 4096 : 1000,
+        // Generate mode forces JSON-only; chat mode uses the coaching system prompt
+        system: isGenerate ? GENERATE_SYSTEM : systemPrompt,
         messages,
       }),
     });
@@ -45,30 +52,9 @@ Deno.serve(async (req) => {
     const data = await anthropicRes.json();
     const text = data.content?.[0]?.text ?? '';
 
-    if (mode === 'generate') {
-      // Parse the JSON goal object Claude returned and send it back directly
-      const clean = text.trim()
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/i, '')
-        .trim();
-      try {
-        const goal = JSON.parse(clean);
-        return new Response(
-          JSON.stringify(goal),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
-      } catch {
-        // If parsing fails, return raw text so the client can handle or surface the error
-        return new Response(
-          JSON.stringify({ error: 'Goal JSON parse failed', raw: text }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
-      }
-    }
-
-    // mode === 'chat'
+    // Always return raw text — the frontend handles parsing and can surface errors with context
     return new Response(
-      JSON.stringify({ response: text }),
+      JSON.stringify({ text }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   } catch (err) {

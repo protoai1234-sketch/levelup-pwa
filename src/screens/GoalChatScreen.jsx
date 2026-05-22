@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { insertGoal, insertAction } from '../utils/storage';
 import { scheduleActionNotifications } from '../utils/notifications';
-import { sendGoalChat, buildGoalFromConversation } from '../utils/claude';
+import { sendGoalChat, buildGoalFromConversation, READY_TRIGGER } from '../utils/claude';
 import { TRAITS } from '../constants';
 
 const GREETING = "Hey! 👋 I'm your LevelUp goal coach. I'll help you set up a goal that actually gets done.\n\nWhat's the goal you want to crush? Tell me what area of your life you want to level up. 🎯";
@@ -76,45 +76,21 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
   const [building, setBuilding] = useState(false);
   const [buildingStep, setBuildingStep] = useState('');
   const [error, setError] = useState(null);
-  const [isReady, setIsReady] = useState(false);
 
   const bottomRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loading, building]);
 
-  async function handleSend() {
-    const text = input.trim();
-    if (!text || loading || building) return;
-
-    const userMsg = { role: 'user', content: text };
-    const next = [...messages, userMsg];
-    setMessages(next);
-    setInput('');
-    setLoading(true);
-    setError(null);
-
-    try {
-      const reply = await sendGoalChat(toApiMessages(next));
-      const ready = reply.includes('[READY_TO_BUILD]');
-      const displayText = reply.replace('[READY_TO_BUILD]', '').trim();
-      if (ready) setIsReady(true);
-      setMessages(prev => [...prev, { role: 'assistant', content: displayText }]);
-    } catch (e) {
-      setError(e.message || 'Something went wrong. Tap Retry to try again.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleBuild() {
+  // Build the goal using a known messages array (avoids stale state closure)
+  async function executeBuild(apiMessages) {
     setBuilding(true);
+    setBuildingStep('Building your goal…');
     setError(null);
-    setBuildingStep('Generating your goal…');
 
     try {
-      const raw = await buildGoalFromConversation(toApiMessages(messages));
+      const raw = await buildGoalFromConversation(apiMessages);
       setBuildingStep('Saving your goal…');
       const goal = validateGoalData(raw);
 
@@ -150,16 +126,48 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
 
       onGoalCreated();
     } catch (e) {
-      setError('Failed to build goal: ' + (e.message || 'Please try again.'));
+      setError(e.message || 'Failed to build goal. Please try again.');
       setBuilding(false);
       setBuildingStep('');
     }
   }
 
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || loading || building) return;
+
+    const userMsg = { role: 'user', content: text };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    setInput('');
+    setLoading(true);
+    setError(null);
+
+    try {
+      const reply = await sendGoalChat(toApiMessages(next));
+
+      // Detect the auto-trigger phrase
+      const triggered = reply.includes(READY_TRIGGER);
+      const displayText = reply.replace(READY_TRIGGER, '').trim();
+
+      const withReply = [...next, { role: 'assistant', content: displayText }];
+      setMessages(withReply);
+      setLoading(false);
+
+      if (triggered) {
+        // Auto-start goal generation — no button needed
+        await executeBuild(toApiMessages(withReply));
+      }
+    } catch (e) {
+      setError(e.message || 'Something went wrong. Tap Retry to try again.');
+      setLoading(false);
+    }
+  }
+
   function handleRetry() {
     setError(null);
-    if (isReady) {
-      handleBuild();
+    if (building) {
+      executeBuild(toApiMessages(messages));
     } else {
       const lastUserIdx = messages.map(m => m.role).lastIndexOf('user');
       if (lastUserIdx !== -1) {
@@ -168,9 +176,6 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
       }
     }
   }
-
-  const userTurns = messages.filter(m => m.role === 'user').length;
-  const showBuildButton = (isReady || userTurns >= 7) && !building && !loading;
 
   return (
     <>
@@ -204,16 +209,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
           <div ref={bottomRef} />
         </div>
 
-        {/* Build button */}
-        {showBuildButton && (
-          <div className="flex-shrink-0 px-4 pt-2 pb-1 border-t border-border bg-card">
-            <button onClick={handleBuild} className="btn-primary w-full flex items-center justify-center gap-2">
-              <span>✨</span><span>Build my goal</span>
-            </button>
-          </div>
-        )}
-
-        {/* Building progress */}
+        {/* Building progress — shown automatically when AI triggers generation */}
         {building && (
           <div className="flex-shrink-0 px-4 py-4 border-t border-border bg-card flex items-center justify-center gap-3">
             <div className="spinner" />
@@ -221,7 +217,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
           </div>
         )}
 
-        {/* Input */}
+        {/* Input — hidden while building */}
         {!building && (
           <div className="flex-shrink-0 bg-card border-t border-border px-4 py-3 safe-bottom">
             <div className="flex gap-2 items-center">
