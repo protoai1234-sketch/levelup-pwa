@@ -17,7 +17,6 @@ function validateGoalData(raw) {
   const today = new Date().toISOString().slice(0, 10);
   const ninetyDays = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
   const validTypes = ['fitness', 'sales', 'nutrition', 'financial', 'habit', 'general'];
-
   return {
     title: String(raw.title || 'My Goal').slice(0, 100),
     description: String(raw.description || ''),
@@ -42,34 +41,36 @@ function validateGoalData(raw) {
   };
 }
 
+// Bubble for finalized messages
 function MessageBubble({ msg }) {
   const isAI = msg.role === 'assistant';
   return (
     <div className={`flex mb-3 ${isAI ? 'justify-start' : 'justify-end'}`}>
-      <div
-        className={`max-w-[82%] px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
-          isAI
-            ? 'bg-card border border-border rounded-2xl rounded-tl-sm text-textPrimary'
-            : 'bg-primary rounded-2xl rounded-tr-sm text-white'
-        }`}
-      >
+      <div className={`max-w-[82%] px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+        isAI
+          ? 'bg-card border border-border rounded-2xl rounded-tl-sm text-textPrimary'
+          : 'bg-primary rounded-2xl rounded-tr-sm text-white'
+      }`}>
         {msg.content}
       </div>
     </div>
   );
 }
 
-function TypingBubble() {
+// Live streaming bubble — text appears as it arrives
+function StreamingBubble({ text }) {
   return (
     <div className="flex mb-3 justify-start">
-      <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 flex gap-1.5 items-center">
-        {[0, 1, 2].map(i => (
-          <span
-            key={i}
-            className="w-2 h-2 rounded-full bg-textSecondary inline-block"
-            style={{ animation: `typing-dot 1.2s ease-in-out ${i * 0.2}s infinite` }}
-          />
-        ))}
+      <div className="max-w-[82%] px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap bg-card border border-border rounded-2xl rounded-tl-sm text-textPrimary">
+        {text || (
+          <span className="flex gap-1.5 items-center py-0.5">
+            {[0, 1, 2].map(i => (
+              <span key={i} className="w-2 h-2 rounded-full bg-textSecondary inline-block"
+                style={{ animation: `typing-dot 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+            ))}
+          </span>
+        )}
+        {text && <span className="inline-block w-0.5 h-4 bg-textSecondary ml-0.5 align-middle animate-pulse" />}
       </div>
     </div>
   );
@@ -78,7 +79,8 @@ function TypingBubble() {
 export default function GoalChatScreen({ onBack, onGoalCreated }) {
   const [messages, setMessages] = useState([{ role: 'assistant', content: GREETING }]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);      // true while waiting for/receiving stream
+  const [streamingText, setStreamingText] = useState(null); // null = idle, string = streaming
   const [building, setBuilding] = useState(false);
   const [buildingStep, setBuildingStep] = useState('');
   const [error, setError] = useState(null);
@@ -89,7 +91,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, streamingText, loading]);
 
   async function handleSend() {
     const text = input.trim();
@@ -100,15 +102,25 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
     setMessages(next);
     setInput('');
     setLoading(true);
+    setStreamingText('');  // show connecting bubble immediately
     setError(null);
 
     try {
-      const raw = await sendGoalChat(toApiMessages(next));
-      const ready = raw.includes('[READY_TO_BUILD]');
-      const displayText = raw.replace('[READY_TO_BUILD]', '').trim();
+      let fullText = '';
+      await sendGoalChat(toApiMessages(next), (_chunk, accumulated) => {
+        fullText = accumulated;
+        setStreamingText(accumulated);
+      });
+
+      // Strip the readiness marker before displaying
+      const ready = fullText.includes('[READY_TO_BUILD]');
+      const displayText = fullText.replace('[READY_TO_BUILD]', '').trim();
       if (ready) setIsReady(true);
+
+      setStreamingText(null);
       setMessages(prev => [...prev, { role: 'assistant', content: displayText }]);
     } catch (e) {
+      setStreamingText(null);
       setError(e.message || 'Something went wrong. Tap Retry to try again.');
     } finally {
       setLoading(false);
@@ -170,18 +182,17 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
     if (isReady) {
       handleBuild();
     } else {
-      const last = [...messages].reverse().find(m => m.role === 'user');
-      if (last) {
-        const trimmed = messages.slice(0, messages.lastIndexOf(last) + 1);
-        setMessages(trimmed);
-        setInput(last.content);
+      // Re-populate input with the last user message and remove it from the thread
+      const lastUserIdx = messages.map(m => m.role).lastIndexOf('user');
+      if (lastUserIdx !== -1) {
+        setInput(messages[lastUserIdx].content);
+        setMessages(prev => prev.slice(0, lastUserIdx));
       }
     }
   }
 
-  // Show build button when AI says ready, or after enough back-and-forth
   const userTurns = messages.filter(m => m.role === 'user').length;
-  const showBuildButton = (isReady || userTurns >= 7) && !building && !loading;
+  const showBuildButton = (isReady || userTurns >= 7) && !building && !loading && streamingText === null;
 
   return (
     <>
@@ -203,7 +214,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 pt-4 pb-2">
           {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
-          {loading && <TypingBubble />}
+          {streamingText !== null && <StreamingBubble text={streamingText} />}
           {error && (
             <div className="mb-3 bg-destructive/15 border border-destructive/40 rounded-xl p-3">
               <p className="text-destructive text-[13px] font-semibold mb-2">{error}</p>
@@ -215,20 +226,16 @@ export default function GoalChatScreen({ onBack, onGoalCreated }) {
           <div ref={bottomRef} />
         </div>
 
-        {/* Build button */}
+        {/* Build my goal button */}
         {showBuildButton && (
           <div className="flex-shrink-0 px-4 pt-2 pb-1 border-t border-border bg-card">
-            <button
-              onClick={handleBuild}
-              className="btn-primary w-full flex items-center justify-center gap-2"
-            >
-              <span>✨</span>
-              <span>Build my goal</span>
+            <button onClick={handleBuild} className="btn-primary w-full flex items-center justify-center gap-2">
+              <span>✨</span><span>Build my goal</span>
             </button>
           </div>
         )}
 
-        {/* Building overlay */}
+        {/* Building progress */}
         {building && (
           <div className="flex-shrink-0 px-4 py-4 border-t border-border bg-card flex items-center justify-center gap-3">
             <div className="spinner" />
