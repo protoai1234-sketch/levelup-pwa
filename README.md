@@ -1,13 +1,25 @@
 # LevelUp PWA
 
-A personal goal-tracking Progressive Web App. Add it to your iPhone or Android home screen and share the link with friends to compete on the leaderboard.
+A personal goal-tracking Progressive Web App with email/password auth and full cloud sync. Add it to your iPhone or Android home screen and share the link with friends to compete on the leaderboard.
 
 ## Tech Stack
 - React + Vite
 - Tailwind CSS
-- localStorage (all personal data — goals, habits, todos, planner)
-- Supabase (leaderboard only — display name + consistency score)
+- Supabase Auth + Postgres (all personal data stored per-user in the cloud)
 - vite-plugin-pwa (service worker, manifest, offline support)
+
+---
+
+## ⚠️ REQUIRED: Disable Email Confirmations
+
+**Without this step users cannot log in after signup.**
+
+1. Go to your [Supabase Dashboard](https://supabase.com)
+2. Open your project → **Authentication** → **Settings**
+3. Scroll to **Email Auth** and **uncheck "Enable email confirmations"**
+4. Click **Save**
+
+The app auto-signs users in immediately after signup — email confirmation would block this flow.
 
 ---
 
@@ -15,32 +27,7 @@ A personal goal-tracking Progressive Web App. Add it to your iPhone or Android h
 
 1. Go to [supabase.com](https://supabase.com) and create a free account.
 2. Click **New project**, name it `levelup`, pick a region, set a password.
-3. In the left sidebar, open **SQL Editor** and run:
-
-```sql
--- Enable UUID extension (usually already enabled)
-create extension if not exists "uuid-ossp";
-
-create table if not exists leaderboard (
-  id uuid primary key default uuid_generate_v4(),
-  user_id text unique not null,
-  display_name text not null,
-  consistency_score float default 0,
-  updated_at timestamp default now()
-);
-
--- Allow anyone to read; only the row owner can upsert their own row
-alter table leaderboard enable row level security;
-
-create policy "Public read"
-  on leaderboard for select using (true);
-
-create policy "Upsert own row"
-  on leaderboard for insert with check (true);
-
-create policy "Update own row"
-  on leaderboard for update using (true);
-```
+3. In the left sidebar, open **SQL Editor** and run the full schema (see `supabase/migrations/`).
 
 4. Go to **Project Settings → API**.
    - Copy **Project URL** → this is `VITE_SUPABASE_URL`
@@ -81,6 +68,7 @@ The Claude API key is stored as a **Supabase secret** and only ever used inside 
 3. In the **Environment Variables** section add:
    - `VITE_SUPABASE_URL` = your Supabase project URL
    - `VITE_SUPABASE_ANON_KEY` = your Supabase anon key
+   - `VITE_VAPID_PUBLIC_KEY` = your VAPID public key (for push notifications)
 
 4. Click **Deploy**. Vercel auto-detects Vite and uses `npm run build` / `dist`.
 
@@ -98,7 +86,9 @@ vercel --prod
 
 ---
 
-## 3 · Add to Home Screen
+## 4 · Add to Home Screen
+
+Push notifications require the app to be installed as a PWA (iOS 16.4+).
 
 ### iPhone (Safari)
 1. Open the Vercel URL in Safari.
@@ -111,7 +101,7 @@ vercel --prod
 
 ---
 
-## 4 · Local development
+## 5 · Local development
 
 ```bash
 npm install
@@ -127,5 +117,4 @@ npm run build && npm run preview
 
 ## Privacy
 
-Only your **display name** and **consistency score** (0–100%) are ever sent to Supabase.
-All goals, habits, todos, planner items, and point history stay on **your device only** in localStorage.
+All personal data (goals, todos, planner items, point history, etc.) is stored in your Supabase project under your user account with row-level security — no one else can read your data. Only your **display name** and **consistency score** are shared on the public leaderboard.

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
-import { registerInAppScheduler, ensurePushSubscription } from './utils/notifications';
+import { registerInAppScheduler, ensurePushSubscription, requestNotificationPermission } from './utils/notifications';
 import { autoPopulatePlannerForDate } from './utils/plannerUtils';
 import { todayString } from './utils/dateHelpers';
 import AuthScreen from './screens/AuthScreen';
@@ -14,6 +14,8 @@ import ProjectDetailScreen from './screens/ProjectDetailScreen';
 import StatsScreen from './screens/StatsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
+const NOTIF_PROMPTED_KEY = 'levelup_notification_prompted';
+
 const TABS = [
   { id: 'planner', label: 'Planner', icon: '📋' },
   { id: 'todos',   label: "To-Do's", icon: '✅' },
@@ -25,13 +27,32 @@ export default function App() {
   const { session } = useAuth();
   const [tab, setTab] = useState('planner');
   const [subscreen, setSubscreen] = useState(null);
+  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
 
   useEffect(() => {
     if (!session) return;
     registerInAppScheduler();
     ensurePushSubscription();
     autoPopulatePlannerForDate(todayString()).catch(() => {});
+
+    // Show notification prompt once if permission not yet granted
+    const alreadyPrompted = localStorage.getItem(NOTIF_PROMPTED_KEY);
+    const permGranted = 'Notification' in window && Notification.permission === 'granted';
+    if (!alreadyPrompted && !permGranted && 'Notification' in window) {
+      setShowNotifPrompt(true);
+    }
   }, [session]);
+
+  async function handleEnableNotifications() {
+    localStorage.setItem(NOTIF_PROMPTED_KEY, '1');
+    setShowNotifPrompt(false);
+    await requestNotificationPermission();
+  }
+
+  function handleDismissNotifPrompt() {
+    localStorage.setItem(NOTIF_PROMPTED_KEY, '1');
+    setShowNotifPrompt(false);
+  }
 
   // Still determining session — show dark splash
   if (session === undefined) {
@@ -108,6 +129,34 @@ export default function App() {
         <div className="flex-shrink-0" style={{ height: 'calc(56px + env(safe-area-inset-bottom, 0px))' }} />
         <TabBar active={tab} onChange={handleTabChange} />
       </div>
+
+      {/* Notification permission prompt */}
+      {showNotifPrompt && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={handleDismissNotifPrompt} />
+          <div className="relative bg-card rounded-t-[20px] border-t border-border p-5 w-full max-w-app slide-up">
+            <div className="text-center mb-1">
+              <span className="text-4xl">🔔</span>
+            </div>
+            <h2 className="text-textPrimary font-black text-[18px] text-center mb-2">Enable Notifications</h2>
+            <p className="text-textSecondary text-[14px] text-center leading-relaxed mb-6">
+              Get daily reminders for your goals so you never miss a session. Tap Allow when prompted.
+            </p>
+            <button
+              onClick={handleEnableNotifications}
+              className="btn-primary w-full mb-3"
+            >
+              Enable Notifications
+            </button>
+            <button
+              onClick={handleDismissNotifPrompt}
+              className="w-full text-center text-[14px] text-textSecondary py-2"
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
