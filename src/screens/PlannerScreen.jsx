@@ -7,7 +7,9 @@ import {
   getActionById, getGoal, getCompletionForActionDate, getTodayPoints,
 } from '../utils/storage';
 import { autoPopulatePlannerForDate } from '../utils/plannerUtils';
-import { cancelPlannerNotification } from '../utils/notifications';
+import {
+  cancelPlannerNotification, schedulePlannerItemNotification,
+} from '../utils/notifications';
 import { todayString, formatDateFull, formatTime, addDays } from '../utils/dateHelpers';
 import BottomSheet from '../components/BottomSheet';
 
@@ -19,6 +21,32 @@ function SourcePill({ sourceType }) {
     return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/20 text-primary flex-shrink-0">To-Do</span>;
   }
   return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-textMuted/20 text-textMuted flex-shrink-0">Custom</span>;
+}
+
+// Notification reminder toggle used in both add flows
+function NotifToggle({ time, on, onToggle }) {
+  if (!time) {
+    return (
+      <div className="flex items-center gap-2 py-2 text-textMuted text-[13px]">
+        <span className="text-base">🔔</span>
+        <span>Set a time above to add a reminder</span>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl border-2 text-[13px] font-semibold transition-colors ${
+        on
+          ? 'border-success bg-success/15 text-success'
+          : 'border-border bg-input text-textSecondary'
+      }`}
+    >
+      <span className="text-base">🔔</span>
+      <span>{on ? `Reminder set for ${formatTime(time)}` : 'Set reminder'}</span>
+    </button>
+  );
 }
 
 function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onTimeChange, onTimeSave, onComplete, onDelete }) {
@@ -85,6 +113,9 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
           {item.sourceType === 'action' && item.goalTitle && (
             <div className="text-[11px] text-textSecondary">{item.goalTitle}</div>
           )}
+          {item.notificationTime && !item.completed && (
+            <div className="text-[10px] text-success font-semibold mt-0.5">🔔 {formatTime(item.notificationTime)}</div>
+          )}
         </div>
 
         <span className={`text-[13px] font-bold flex-shrink-0 ${item.completed ? 'text-textMuted' : 'text-success'}`}>
@@ -118,8 +149,10 @@ export default function PlannerScreen() {
   const [todoSources, setTodoSources] = useState([]);
   const [pendingTodo, setPendingTodo] = useState(null);
   const [todoStartTime, setTodoStartTime] = useState('');
+  const [todoNotifOn, setTodoNotifOn] = useState(false);
   const [customLabel, setCustomLabel] = useState('');
   const [customTime, setCustomTime] = useState('');
+  const [customNotifOn, setCustomNotifOn] = useState(false);
 
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
@@ -131,7 +164,6 @@ export default function PlannerScreen() {
     setLoading(true);
     try {
       const rawItems = await getPlannerItemsForDate(selectedDate);
-      // Backfill goalTitle for action items that are missing it
       const enriched = await Promise.all(rawItems.map(async item => {
         if (item.sourceType === 'action' && !item.goalTitle && item.sourceId) {
           const action = await getActionById(item.sourceId);
@@ -203,8 +235,10 @@ export default function PlannerScreen() {
     setTodoSources([]);
     setPendingTodo(null);
     setTodoStartTime('');
+    setTodoNotifOn(false);
     setCustomLabel('');
     setCustomTime('');
+    setCustomNotifOn(false);
   }
 
   async function handlePickTodos() {
@@ -223,15 +257,24 @@ export default function PlannerScreen() {
   function handleSelectTodo(todo) {
     setPendingTodo(todo);
     setTodoStartTime('');
+    setTodoNotifOn(false);
     setAddStep('todo-time');
   }
 
   async function handleConfirmTodo() {
     try {
+      const notifId = todoNotifOn && todoStartTime
+        ? schedulePlannerItemNotification(pendingTodo.label, selectedDate, todoStartTime)
+        : null;
       await insertPlannerItem({
-        planDate: selectedDate, label: pendingTodo.label,
-        startTime: todoStartTime || null, sourceType: 'todo', sourceId: pendingTodo.id,
-        notificationId: null, notificationTime: null, pointValue: 10,
+        planDate: selectedDate,
+        label: pendingTodo.label,
+        startTime: todoStartTime || null,
+        sourceType: 'todo',
+        sourceId: pendingTodo.id,
+        notificationId: notifId,
+        notificationTime: todoNotifOn && todoStartTime ? todoStartTime : null,
+        pointValue: 10,
       });
     } catch (_) {}
     closeAddModal();
@@ -243,10 +286,18 @@ export default function PlannerScreen() {
     if (!label) return;
     try {
       const todoId = await insertTodo({ label });
+      const notifId = customNotifOn && customTime
+        ? schedulePlannerItemNotification(label, selectedDate, customTime)
+        : null;
       await insertPlannerItem({
-        planDate: selectedDate, label,
-        startTime: customTime || null, sourceType: 'custom', sourceId: todoId,
-        notificationId: null, notificationTime: null, pointValue: 10,
+        planDate: selectedDate,
+        label,
+        startTime: customTime || null,
+        sourceType: 'custom',
+        sourceId: todoId,
+        notificationId: notifId,
+        notificationTime: customNotifOn && customTime ? customTime : null,
+        pointValue: 10,
       });
     } catch (_) {}
     closeAddModal();
@@ -368,7 +419,22 @@ export default function PlannerScreen() {
             <button onClick={() => setAddStep('todo-list')} className="text-primary font-semibold text-[14px] mb-3">‹ Back</button>
             <p className="text-[16px] font-bold text-textPrimary mb-4">{pendingTodo.label}</p>
             <label className="field-label">Start Time (optional)</label>
-            <input type="time" value={todoStartTime} onChange={e => setTodoStartTime(e.target.value)} className="mb-4" />
+            <input
+              type="time"
+              value={todoStartTime}
+              onChange={e => {
+                setTodoStartTime(e.target.value);
+                if (!e.target.value) setTodoNotifOn(false);
+              }}
+              className="mb-3"
+            />
+            <div className="mb-4">
+              <NotifToggle
+                time={todoStartTime}
+                on={todoNotifOn}
+                onToggle={() => setTodoNotifOn(v => !v)}
+              />
+            </div>
             <button onClick={handleConfirmTodo} className="btn-primary w-full">Add to Plan</button>
           </div>
         )}
@@ -385,7 +451,22 @@ export default function PlannerScreen() {
               className="mb-3"
             />
             <label className="field-label">Start Time (optional)</label>
-            <input type="time" value={customTime} onChange={e => setCustomTime(e.target.value)} className="mb-4" />
+            <input
+              type="time"
+              value={customTime}
+              onChange={e => {
+                setCustomTime(e.target.value);
+                if (!e.target.value) setCustomNotifOn(false);
+              }}
+              className="mb-3"
+            />
+            <div className="mb-4">
+              <NotifToggle
+                time={customTime}
+                on={customNotifOn}
+                onToggle={() => setCustomNotifOn(v => !v)}
+              />
+            </div>
             <button onClick={handleAddCustom} className="btn-primary w-full">Add to Plan</button>
           </div>
         )}
