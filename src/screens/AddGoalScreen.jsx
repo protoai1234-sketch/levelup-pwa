@@ -63,15 +63,16 @@ export default function AddGoalScreen({ existingGoal, onBack }) {
     setStartDate(existingGoal.startDate);
     setEndDate(existingGoal.endDate);
     setVacationDays(Array.isArray(existingGoal.vacationDays) ? existingGoal.vacationDays : JSON.parse(existingGoal.vacationDays || '[]'));
-    const dbActions = getActionsForGoal(existingGoal.id);
-    if (dbActions.length > 0) {
-      setActions(dbActions.map(a => ({
-        name: a.name,
-        pointValue: String(a.pointValue),
-        notifEnabled: Boolean(a.notificationEnabled),
-        notifTime: a.notificationTime || '09:00',
-      })));
-    }
+    getActionsForGoal(existingGoal.id).then(dbActions => {
+      if (dbActions.length > 0) {
+        setActions(dbActions.map(a => ({
+          name: a.name,
+          pointValue: String(a.pointValue),
+          notifEnabled: Boolean(a.notificationEnabled),
+          notifTime: a.notificationTime || '09:00',
+        })));
+      }
+    }).catch(() => {});
   }, []);
 
   function toggleTrait(t) { setTraits(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]); }
@@ -94,22 +95,22 @@ export default function AddGoalScreen({ existingGoal, onBack }) {
     setSaving(true);
     try {
       if (isEditing) {
-        const existingActions = getActionsForGoal(existingGoal.id);
+        const existingActions = await getActionsForGoal(existingGoal.id);
         for (const ea of existingActions) cancelNotifications(ea.notificationIds || []);
-        updateGoal(existingGoal.id, { title: title.trim(), description: description.trim(), startDate, endDate, activeDays, vacationDays, traits });
-        deleteActionsForGoal(existingGoal.id);
+        await updateGoal(existingGoal.id, { title: title.trim(), description: description.trim(), startDate, endDate, activeDays, vacationDays, traits });
+        await deleteActionsForGoal(existingGoal.id);
         for (const a of validActions) {
           const notifIds = a.notifEnabled && a.notifTime
             ? scheduleActionNotifications(a.name.trim(), activeDays, a.notifTime) : [];
-          insertAction({ goalId: existingGoal.id, name: a.name.trim(), pointValue: parseInt(a.pointValue, 10) || 30,
+          await insertAction({ goalId: existingGoal.id, name: a.name.trim(), pointValue: parseInt(a.pointValue, 10) || 30,
             notificationEnabled: a.notifEnabled, notificationTime: a.notifEnabled ? a.notifTime : null, notificationIds: notifIds });
         }
       } else {
-        const goalId = insertGoal({ title: title.trim(), description: description.trim(), startDate, endDate, activeDays, vacationDays, traits });
+        const goalId = await insertGoal({ title: title.trim(), description: description.trim(), startDate, endDate, activeDays, vacationDays, traits });
         for (const a of validActions) {
           const notifIds = a.notifEnabled && a.notifTime
             ? scheduleActionNotifications(a.name.trim(), activeDays, a.notifTime) : [];
-          insertAction({ goalId, name: a.name.trim(), pointValue: parseInt(a.pointValue, 10) || 30,
+          await insertAction({ goalId, name: a.name.trim(), pointValue: parseInt(a.pointValue, 10) || 30,
             notificationEnabled: a.notifEnabled, notificationTime: a.notifEnabled ? a.notifTime : null, notificationIds: notifIds });
         }
       }
@@ -126,7 +127,6 @@ export default function AddGoalScreen({ existingGoal, onBack }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Nav */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card flex-shrink-0">
         <button onClick={onBack} className="text-primary font-semibold text-[15px]">‹ Goals</button>
         <span className="flex-1 text-textPrimary font-bold text-center">{isEditing ? 'Edit Goal' : 'New Goal'}</span>
@@ -178,7 +178,6 @@ export default function AddGoalScreen({ existingGoal, onBack }) {
             + Add Another Action
           </button>
 
-          {/* Vacation days */}
           <div className="flex items-center justify-between py-3 border-t border-border mt-2">
             <div>
               <div className="field-label !mt-0 !mb-0">Vacation / Pause Days</div>

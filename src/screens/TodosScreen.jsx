@@ -28,11 +28,9 @@ function TodoRow({ todo, onComplete, onDelete }) {
 
   return (
     <div className="relative overflow-hidden">
-      {/* Delete bg */}
       <div className="absolute right-0 top-0 bottom-0 bg-destructive flex items-center px-5">
         <span className="text-white font-bold text-sm">Delete</span>
       </div>
-      {/* Row */}
       <div
         className={`flex items-center gap-3 py-3 bg-card transition-opacity ${fading ? 'opacity-0' : 'opacity-100'}`}
         style={{ transform: `translateX(${swipeX}px)`, transition: startX.current ? 'none' : 'transform 0.2s ease' }}
@@ -52,7 +50,6 @@ function TodoRow({ todo, onComplete, onDelete }) {
           className="text-textMuted text-base w-7 flex items-center justify-center"
         >✕</button>
       </div>
-      {/* Confirm swipe delete */}
       {swiping && (
         <button
           onClick={() => onDelete(todo)}
@@ -66,30 +63,40 @@ function TodoRow({ todo, onComplete, onDelete }) {
 
 export default function TodosScreen() {
   const [todos, setTodos] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [label, setLabel] = useState('');
 
-  useEffect(() => { setTodos(getTodos()); }, []);
+  useEffect(() => {
+    getTodos().then(setTodos).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
-  function handleComplete(todo) {
-    deleteTodo(todo.id);
-    insertPointLog({ sourceType: 'todo', sourceId: todo.id, points: 10, logDate: todayString() });
+  async function handleComplete(todo) {
+    try {
+      await deleteTodo(todo.id);
+      await insertPointLog({ sourceType: 'todo', sourceId: todo.id, points: 10, logDate: todayString() });
+    } catch (_) {}
     setTodos(prev => prev.filter(t => t.id !== todo.id));
   }
 
-  function handleDelete(todo) {
-    deleteTodo(todo.id);
+  async function handleDelete(todo) {
+    try { await deleteTodo(todo.id); } catch (_) {}
     setTodos(prev => prev.filter(t => t.id !== todo.id));
   }
 
-  function handleAdd() {
+  async function handleAdd() {
     const trimmed = label.trim();
     if (!trimmed) return;
-    insertTodo({ label: trimmed });
+    try {
+      await insertTodo({ label: trimmed });
+      const updated = await getTodos();
+      setTodos(updated);
+    } catch (_) {}
     setShowAdd(false);
     setLabel('');
-    setTodos(getTodos());
   }
+
+  if (loading) return <div className="flex-1 flex items-center justify-center"><div className="spinner" /></div>;
 
   return (
     <div className="flex flex-col h-full">

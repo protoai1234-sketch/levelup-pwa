@@ -1,29 +1,45 @@
 import { useState, useEffect } from 'react';
-import { getUser, saveUser } from '../utils/storage';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../utils/supabase';
 import { getNotificationPermission, getPushSubscriptionStatus, debugPushSubscription } from '../utils/notifications';
 
 export default function SettingsScreen({ onBack }) {
+  const { session, profile, signOut, fetchProfile } = useAuth();
   const [displayName, setDisplayName] = useState('');
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [nameError, setNameError] = useState('');
   const [notifPerm, setNotifPerm] = useState('default');
   const [pushStatus, setPushStatus] = useState('checking');
-  const [debugSteps, setDebugSteps] = useState(null); // null = not run yet
+  const [debugSteps, setDebugSteps] = useState(null);
   const [debugRunning, setDebugRunning] = useState(false);
 
   useEffect(() => {
-    const u = getUser();
-    if (u?.displayName) setDisplayName(u.displayName);
+    if (profile?.display_name) setDisplayName(profile.display_name);
     setNotifPerm(getNotificationPermission());
     getPushSubscriptionStatus().then(setPushStatus);
-  }, []);
+  }, [profile]);
 
-  function handleSaveName() {
+  async function handleSaveName() {
     const trimmed = displayName.trim();
     if (!trimmed) return;
-    const u = getUser();
-    saveUser({ ...u, displayName: trimmed });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    setNameError('');
+    try {
+      const { error } = await supabase.from('profiles').upsert({
+        id: session.user.id,
+        display_name: trimmed,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      await fetchProfile(session.user.id);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setNameError(e.message || 'Failed to save name.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDebugPush() {
@@ -33,7 +49,6 @@ export default function SettingsScreen({ onBack }) {
       setDebugSteps(prev => [...prev, step]);
     });
     setDebugRunning(false);
-    // Refresh push status badge after the run
     getPushSubscriptionStatus().then(setPushStatus);
   }
 
@@ -65,21 +80,35 @@ export default function SettingsScreen({ onBack }) {
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 pb-10">
 
-          {/* Display name */}
+          {/* Profile */}
           <div className="card mb-4">
             <div className="section-label">Profile</div>
+            {session?.user?.email && (
+              <div className="flex items-center justify-between py-2 border-b border-border mb-3">
+                <span className="text-[14px] text-textSecondary">Email</span>
+                <span className="text-[14px] font-semibold text-textPrimary truncate ml-4 text-right">{session.user.email}</span>
+              </div>
+            )}
             <label className="field-label">Display Name</label>
             <input
               type="text"
               value={displayName}
-              onChange={e => { setDisplayName(e.target.value); setSaved(false); }}
+              onChange={e => { setDisplayName(e.target.value); setSaved(false); setNameError(''); }}
               onKeyDown={e => e.key === 'Enter' && handleSaveName()}
-              placeholder="Your name"
+              placeholder="Your name (shown on leaderboard)"
               maxLength={30}
               className="mb-3"
             />
-            <button onClick={handleSaveName} disabled={!displayName.trim()} className="btn-primary w-full">
-              {saved ? 'Saved ✓' : 'Save Name'}
+            {nameError && (
+              <p className="text-destructive text-[13px] font-semibold mb-2">{nameError}</p>
+            )}
+            <button
+              onClick={handleSaveName}
+              disabled={!displayName.trim() || saving}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              {saving && <span className="spinner !w-4 !h-4" />}
+              {saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save Name'}
             </button>
           </div>
 
@@ -101,7 +130,6 @@ export default function SettingsScreen({ onBack }) {
               </span>
             </div>
 
-            {/* Debug Push button */}
             <button
               onClick={handleDebugPush}
               disabled={debugRunning}
@@ -111,7 +139,6 @@ export default function SettingsScreen({ onBack }) {
               {debugRunning ? 'Running…' : 'Debug Push'}
             </button>
 
-            {/* Step results */}
             {debugSteps !== null && (
               <div className="mt-3 rounded-xl bg-bg border border-border overflow-hidden">
                 {debugSteps.map((s, i) => (
@@ -144,8 +171,8 @@ export default function SettingsScreen({ onBack }) {
             )}
           </div>
 
-          {/* App info */}
-          <div className="card">
+          {/* About */}
+          <div className="card mb-4">
             <div className="section-label">About</div>
             <div className="flex items-center justify-between py-2">
               <span className="text-[14px] text-textSecondary">App</span>
@@ -153,13 +180,21 @@ export default function SettingsScreen({ onBack }) {
             </div>
             <div className="flex items-center justify-between py-2 border-t border-border">
               <span className="text-[14px] text-textSecondary">Version</span>
-              <span className="text-[14px] font-semibold text-textPrimary">1.0.0</span>
+              <span className="text-[14px] font-semibold text-textPrimary">2.0.0</span>
             </div>
             <div className="flex items-center justify-between py-2 border-t border-border">
               <span className="text-[14px] text-textSecondary">Data storage</span>
-              <span className="text-[14px] font-semibold text-textPrimary">On this device</span>
+              <span className="text-[14px] font-semibold text-textPrimary">Supabase cloud</span>
             </div>
           </div>
+
+          {/* Sign out */}
+          <button
+            onClick={signOut}
+            className="w-full border-2 border-destructive rounded-xl py-3.5 text-destructive font-bold text-[15px]"
+          >
+            Sign Out
+          </button>
 
         </div>
       </div>

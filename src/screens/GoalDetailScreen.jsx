@@ -14,22 +14,28 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
 
   useEffect(() => { loadData(); }, [goalId]);
 
-  function loadData() {
+  async function loadData() {
     setLoading(true);
-    const g = getGoal(goalId);
-    if (!g) { onBack(); return; }
-    const acts = getActionsForGoal(goalId);
-    const completions = getCompletionsForGoal(goalId);
-    setGoal(g);
-    setActions(acts);
-    setStats(calculateGoalStats(g, acts, completions));
+    try {
+      const g = await getGoal(goalId);
+      if (!g) { onBack(); return; }
+      const [acts, completions] = await Promise.all([
+        getActionsForGoal(goalId),
+        getCompletionsForGoal(goalId),
+      ]);
+      setGoal(g);
+      setActions(acts);
+      setStats(calculateGoalStats(g, acts, completions));
+    } catch (_) {}
     setLoading(false);
   }
 
-  function handleDelete() {
-    const acts = getActionsForGoal(goalId);
-    for (const a of acts) cancelNotifications(a.notificationIds || []);
-    deleteGoal(goalId);
+  async function handleDelete() {
+    try {
+      const acts = await getActionsForGoal(goalId);
+      for (const a of acts) cancelNotifications(a.notificationIds || []);
+      await deleteGoal(goalId);
+    } catch (_) {}
     onBack();
   }
 
@@ -42,7 +48,6 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Nav */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card flex-shrink-0">
         <button onClick={onBack} className="text-primary font-semibold text-[15px]">‹ Goals</button>
         <span className="flex-1 text-textPrimary font-bold text-center truncate">{goal.title}</span>
@@ -51,7 +56,6 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
 
       <div className="flex-1 overflow-y-auto">
         <div className="p-4 pb-8">
-          {/* Header card */}
           <div className="card mb-3">
             <h1 className="text-[22px] font-black text-textPrimary mb-1.5">{goal.title}</h1>
             {goal.description ? <p className="text-textSecondary text-[15px] leading-relaxed mb-2.5">{goal.description}</p> : null}
@@ -67,7 +71,6 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
             )}
           </div>
 
-          {/* Progress */}
           {stats && (
             <div className="card mb-3">
               <div className="section-label">Progress</div>
@@ -86,7 +89,6 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
             </div>
           )}
 
-          {/* Details */}
           <div className="card mb-3">
             <div className="section-label">Details</div>
             <DetailRow label="Active days" value={formatActiveDays(activeDays) || '—'} />
@@ -96,7 +98,6 @@ export default function GoalDetailScreen({ goalId, onNavigate, onBack }) {
             {vacationDays.length > 0 && <DetailRow label="Paused days" value={`${vacationDays.length} day(s)`} />}
           </div>
 
-          {/* Actions */}
           <div className="card mb-4">
             <div className="section-label">Daily Actions</div>
             {actions.map((action, i) => (

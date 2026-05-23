@@ -13,46 +13,50 @@ export default function GoalsScreen({ onNavigate }) {
 
   useEffect(() => { loadData(); }, []);
 
-  function loadData() {
+  async function loadData() {
     setLoading(true);
-    const rawGoals = getGoals();
-    const goalIds = rawGoals.map(g => g.id);
-    const allActions = getAllActionsForGoals(goalIds);
-    const allCompletions = getCompletionsForGoals(goalIds);
-    const allProjects = getProjects();
-    const allTasks = getAllProjectTasks();
+    try {
+      const rawGoals = await getGoals();
+      const goalIds = rawGoals.map(g => g.id);
+      const [allActions, allCompletions, allProjects, allTasks] = await Promise.all([
+        getAllActionsForGoals(goalIds),
+        getCompletionsForGoals(goalIds),
+        getProjects(),
+        getAllProjectTasks(),
+      ]);
 
-    const actionMap = {};
-    allActions.forEach(a => {
-      if (!actionMap[a.goalId]) actionMap[a.goalId] = [];
-      actionMap[a.goalId].push(a);
-    });
+      const actionMap = {};
+      allActions.forEach(a => {
+        if (!actionMap[a.goalId]) actionMap[a.goalId] = [];
+        actionMap[a.goalId].push(a);
+      });
 
-    const completionMap = {};
-    allCompletions.forEach(c => {
-      if (!completionMap[c.goalId]) completionMap[c.goalId] = [];
-      completionMap[c.goalId].push(c);
-    });
+      const completionMap = {};
+      allCompletions.forEach(c => {
+        if (!completionMap[c.goalId]) completionMap[c.goalId] = [];
+        completionMap[c.goalId].push(c);
+      });
 
-    const pMap = {};
-    allProjects.forEach(p => {
-      if (!pMap[p.goalId]) pMap[p.goalId] = [];
-      pMap[p.goalId].push(p);
-    });
-    Object.values(pMap).forEach(arr => arr.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)));
+      const pMap = {};
+      allProjects.forEach(p => {
+        if (!pMap[p.goalId]) pMap[p.goalId] = [];
+        pMap[p.goalId].push(p);
+      });
+      Object.values(pMap).forEach(arr => arr.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)));
 
-    const tCountMap = {};
-    allTasks.forEach(t => {
-      if (!tCountMap[t.projectId]) tCountMap[t.projectId] = { total: 0, done: 0 };
-      tCountMap[t.projectId].total++;
-      if (t.completed) tCountMap[t.projectId].done++;
-    });
+      const tCountMap = {};
+      allTasks.forEach(t => {
+        if (!tCountMap[t.projectId]) tCountMap[t.projectId] = { total: 0, done: 0 };
+        tCountMap[t.projectId].total++;
+        if (t.completed) tCountMap[t.projectId].done++;
+      });
 
-    setGoals(rawGoals);
-    setActions(actionMap);
-    setCompletions(completionMap);
-    setProjectMap(pMap);
-    setTaskCountMap(tCountMap);
+      setGoals(rawGoals);
+      setActions(actionMap);
+      setCompletions(completionMap);
+      setProjectMap(pMap);
+      setTaskCountMap(tCountMap);
+    } catch (_) {}
     setLoading(false);
   }
 

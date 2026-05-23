@@ -8,8 +8,23 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 console.log('[Supabase] VITE_SUPABASE_URL:', url ? `${url.slice(0, 30)}…` : 'MISSING');
 console.log('[Supabase] VITE_SUPABASE_ANON_KEY:', key ? `set (${key.length} chars)` : 'MISSING');
 
-export const supabase = url && key ? createClient(url, key) : null;
+export const supabase = url && key
+  ? createClient(url, key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      },
+    })
+  : null;
 console.log('[Supabase] client:', supabase ? 'initialized' : 'NULL — both env vars required');
+
+export async function getSession() {
+  if (!supabase) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  return session;
+}
 
 const CACHE_KEY = 'levelup_leaderboard_cache';
 

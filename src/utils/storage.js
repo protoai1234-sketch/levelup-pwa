@@ -1,323 +1,407 @@
-// localStorage-backed data layer. All public functions mirror the original db.js API
-// and return plain values (not Promises) unless noted.
+import { supabase } from './supabase';
 
-const KEYS = {
-  goals:        'levelup_goals',
-  actions:      'levelup_daily_actions',
-  completions:  'levelup_action_completions',
-  habits:       'levelup_habits',
-  habitLogs:    'levelup_habit_logs',
-  todos:        'levelup_todos',
-  planner:      'levelup_planner_items',
-  pointLog:     'levelup_point_log',
-  user:         'levelup_user',
-  badHabits:    'levelup_bad_habits',
-  badHabitLogs: 'levelup_bad_habit_logs',
-  projects:     'levelup_projects',
-  projectTasks: 'levelup_project_tasks',
-};
-
-function load(key, fallback = []) {
-  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+// Set by AuthContext after login; all storage functions require this to be set.
+let _uid = null;
+export function setUserId(id) { _uid = id; }
+export function getUserId() { return _uid; }
+function uid() {
+  if (!_uid) throw new Error('Not authenticated');
+  return _uid;
 }
-function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
-function nextId(items) {
-  return items.length === 0 ? 1 : Math.max(...items.map(i => i.id)) + 1;
+
+// ── Row mappers (snake_case DB → camelCase JS) ────────────────────────────────
+
+function mapGoal(r) {
+  return {
+    id: r.id, title: r.title, description: r.description || '',
+    goalType: r.goal_type || 'general', traits: r.traits || [],
+    startDate: r.start_date || '', endDate: r.end_date || '',
+    activeDays: r.active_days || [], vacationDays: r.vacation_days || [],
+    weeklyPlan: r.weekly_plan || null,
+    notificationsEnabled: r.notifications_enabled || 0,
+    notificationTime: r.notification_time || null,
+    notificationIds: r.notification_ids || [],
+    createdAt: r.created_at,
+  };
 }
-function nowStr() { return new Date().toISOString(); }
 
-// ── User ──────────────────────────────────────────────────────────────────────
+function mapAction(r) {
+  return {
+    id: r.id, goalId: r.goal_id, name: r.name,
+    pointValue: r.point_value, notificationEnabled: r.notification_enabled || 0,
+    notificationTime: r.notification_time || null,
+    notificationIds: r.notification_ids || [],
+    metricType: r.metric_type || 'checkbox',
+    metricTarget: r.metric_target ?? null, metricUnit: r.metric_unit || null,
+    dayOfWeek: r.day_of_week ?? null, createdAt: r.created_at,
+  };
+}
 
-export function getUser() { return load(KEYS.user, null); }
-export function saveUser(u) { save(KEYS.user, u); }
+function mapCompletion(r) {
+  return {
+    id: r.id, actionId: r.action_id, goalId: r.goal_id,
+    completedDate: r.completed_date, createdAt: r.created_at,
+  };
+}
 
-export function ensureUser() {
-  let u = getUser();
-  if (!u) {
-    u = { userId: crypto.randomUUID(), displayName: '' };
-    saveUser(u);
-  }
-  return u;
+function mapTodo(r) {
+  return { id: r.id, label: r.label, createdAt: r.created_at };
+}
+
+function mapPlannerItem(r) {
+  return {
+    id: r.id, planDate: r.plan_date, label: r.label,
+    startTime: r.start_time || null,
+    sourceType: r.source_type || 'custom', sourceId: r.source_id || null,
+    completed: Boolean(r.completed),
+    notificationId: r.notification_id || null,
+    notificationTime: r.notification_time || null,
+    pointValue: r.point_value || 10,
+    goalId: r.goal_id || null, goalTitle: r.goal_title || null,
+    metricType: r.metric_type || 'checkbox', createdAt: r.created_at,
+  };
+}
+
+function mapPointLog(r) {
+  return {
+    id: r.id, sourceType: r.source_type, sourceId: r.source_id,
+    points: r.points, logDate: r.log_date, createdAt: r.created_at,
+  };
+}
+
+function mapHabit(r) {
+  return {
+    id: r.id, name: r.name, type: r.type,
+    pointValue: r.point_value, traits: r.traits || [], createdAt: r.created_at,
+  };
+}
+
+function mapHabitLog(r) {
+  return { id: r.id, habitId: r.habit_id, logDate: r.log_date, createdAt: r.created_at };
+}
+
+function mapProject(r) {
+  return {
+    id: r.id, goalId: r.goal_id, name: r.name,
+    description: r.description || '', status: r.status || 'active',
+    orderIndex: r.order_index || 0, createdAt: r.created_at,
+  };
+}
+
+function mapProjectTask(r) {
+  return {
+    id: r.id, projectId: r.project_id, name: r.name,
+    completed: r.completed || 0, dueDate: r.due_date || null,
+    orderIndex: r.order_index || 0, createdAt: r.created_at,
+  };
 }
 
 // ── Goals ─────────────────────────────────────────────────────────────────────
 
-export function getGoals() {
-  return load(KEYS.goals).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export async function getGoals() {
+  const { data, error } = await supabase.from('goals').select('*')
+    .eq('user_id', uid()).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapGoal);
 }
 
-export function getGoal(id) {
-  return load(KEYS.goals).find(g => g.id === id) || null;
+export async function getGoal(id) {
+  const { data, error } = await supabase.from('goals').select('*')
+    .eq('id', id).eq('user_id', uid()).maybeSingle();
+  if (error || !data) return null;
+  return mapGoal(data);
 }
 
-export function insertGoal(g) {
-  const goals = load(KEYS.goals);
-  const id = nextId(goals);
-  goals.push({
-    id, ...g,
-    activeDays:   Array.isArray(g.activeDays)   ? g.activeDays   : JSON.parse(g.activeDays   || '[]'),
-    vacationDays: Array.isArray(g.vacationDays) ? g.vacationDays : JSON.parse(g.vacationDays || '[]'),
-    traits:       Array.isArray(g.traits)        ? g.traits       : JSON.parse(g.traits        || '[]'),
-    goalType:     g.goalType || 'general',
-    weeklyPlan:   typeof g.weeklyPlan === 'string' ? JSON.parse(g.weeklyPlan || 'null') : (g.weeklyPlan || null),
-    notificationsEnabled: 0, notificationTime: null, notificationIds: '[]',
-    createdAt: nowStr(),
-  });
-  save(KEYS.goals, goals);
-  return id;
+export async function insertGoal(g) {
+  const { data, error } = await supabase.from('goals').insert({
+    user_id: uid(), title: g.title, description: g.description || '',
+    goal_type: g.goalType || 'general', traits: g.traits || [],
+    start_date: g.startDate || null, end_date: g.endDate || null,
+    active_days: g.activeDays || [], vacation_days: g.vacationDays || [],
+    weekly_plan: g.weeklyPlan || {}, notifications_enabled: 0,
+    notification_time: null, notification_ids: [],
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function updateGoal(id, g) {
-  const goals = load(KEYS.goals);
-  const idx = goals.findIndex(x => x.id === id);
-  if (idx === -1) return;
-  goals[idx] = {
-    ...goals[idx], ...g,
-    activeDays:   Array.isArray(g.activeDays)   ? g.activeDays   : JSON.parse(g.activeDays   || '[]'),
-    vacationDays: Array.isArray(g.vacationDays) ? g.vacationDays : JSON.parse(g.vacationDays || '[]'),
-    traits:       Array.isArray(g.traits)        ? g.traits       : JSON.parse(g.traits        || '[]'),
-    goalType:     g.goalType || goals[idx].goalType || 'general',
-    weeklyPlan:   g.weeklyPlan !== undefined
-      ? (typeof g.weeklyPlan === 'string' ? JSON.parse(g.weeklyPlan || 'null') : g.weeklyPlan)
-      : goals[idx].weeklyPlan,
-  };
-  save(KEYS.goals, goals);
+export async function updateGoal(id, g) {
+  const u = {};
+  if (g.title !== undefined) u.title = g.title;
+  if (g.description !== undefined) u.description = g.description;
+  if (g.goalType !== undefined) u.goal_type = g.goalType;
+  if (g.traits !== undefined) u.traits = g.traits;
+  if (g.startDate !== undefined) u.start_date = g.startDate;
+  if (g.endDate !== undefined) u.end_date = g.endDate;
+  if (g.activeDays !== undefined) u.active_days = g.activeDays;
+  if (g.vacationDays !== undefined) u.vacation_days = g.vacationDays;
+  if (g.weeklyPlan !== undefined) u.weekly_plan = g.weeklyPlan || {};
+  const { error } = await supabase.from('goals').update(u)
+    .eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function deleteGoal(id) {
-  save(KEYS.goals,       load(KEYS.goals).filter(g => g.id !== id));
-  save(KEYS.actions,     load(KEYS.actions).filter(a => a.goalId !== id));
-  save(KEYS.completions, load(KEYS.completions).filter(c => c.goalId !== id));
+export async function deleteGoal(id) {
+  // Delete in dependency order since FKs may not have CASCADE
+  await supabase.from('action_completions').delete().eq('goal_id', id).eq('user_id', uid());
+  await supabase.from('daily_actions').delete().eq('goal_id', id).eq('user_id', uid());
+  await supabase.from('projects').delete().eq('goal_id', id).eq('user_id', uid());
+  const { error } = await supabase.from('goals').delete().eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
 // ── Daily Actions ──────────────────────────────────────────────────────────────
 
-export function getActionsForGoal(goalId) {
-  return load(KEYS.actions).filter(a => a.goalId === goalId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+export async function getActionsForGoal(goalId) {
+  const { data, error } = await supabase.from('daily_actions').select('*')
+    .eq('goal_id', goalId).eq('user_id', uid()).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(mapAction);
 }
 
-export function getActionById(id) {
-  return load(KEYS.actions).find(a => a.id === id) || null;
+export async function getActionById(id) {
+  const { data, error } = await supabase.from('daily_actions').select('*')
+    .eq('id', id).eq('user_id', uid()).maybeSingle();
+  if (error || !data) return null;
+  return mapAction(data);
 }
 
-export function getAllActionsForGoals(goalIds) {
+export async function getAllActionsForGoals(goalIds) {
   if (!goalIds.length) return [];
-  const set = new Set(goalIds);
-  return load(KEYS.actions).filter(a => set.has(a.goalId));
+  const { data, error } = await supabase.from('daily_actions').select('*')
+    .in('goal_id', goalIds).eq('user_id', uid());
+  if (error) throw error;
+  return (data || []).map(mapAction);
 }
 
-export function insertAction(a) {
-  const actions = load(KEYS.actions);
-  const id = nextId(actions);
-  actions.push({
-    id, ...a,
-    notificationIds: Array.isArray(a.notificationIds) ? a.notificationIds : JSON.parse(a.notificationIds || '[]'),
-    createdAt: nowStr(),
-  });
-  save(KEYS.actions, actions);
-  return id;
+export async function insertAction(a) {
+  const { data, error } = await supabase.from('daily_actions').insert({
+    user_id: uid(), goal_id: a.goalId, name: a.name,
+    point_value: a.pointValue || 30,
+    notification_enabled: a.notificationEnabled ? 1 : 0,
+    notification_time: a.notificationTime || null,
+    notification_ids: a.notificationIds || [],
+    metric_type: a.metricType || 'checkbox',
+    metric_target: a.metricTarget ?? null, metric_unit: a.metricUnit || null,
+    day_of_week: a.dayOfWeek ?? null,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function deleteActionsForGoal(goalId) {
-  save(KEYS.actions, load(KEYS.actions).filter(a => a.goalId !== goalId));
+export async function deleteActionsForGoal(goalId) {
+  const { error } = await supabase.from('daily_actions').delete()
+    .eq('goal_id', goalId).eq('user_id', uid());
+  if (error) throw error;
 }
 
 // ── Action Completions ─────────────────────────────────────────────────────────
 
-export function getCompletionsForDate(date) {
-  return load(KEYS.completions).filter(c => c.completedDate === date);
+export async function getCompletionsForGoal(goalId) {
+  const { data, error } = await supabase.from('action_completions').select('*')
+    .eq('goal_id', goalId).eq('user_id', uid());
+  if (error) throw error;
+  return (data || []).map(mapCompletion);
 }
 
-export function getCompletionsForGoal(goalId) {
-  return load(KEYS.completions).filter(c => c.goalId === goalId);
+export async function getCompletionsForGoals(goalIds) {
+  if (!goalIds.length) return [];
+  const { data, error } = await supabase.from('action_completions').select('*')
+    .in('goal_id', goalIds).eq('user_id', uid());
+  if (error) throw error;
+  return (data || []).map(mapCompletion);
 }
 
-export function getCompletionsForGoals(goalIds) {
-  const set = new Set(goalIds);
-  return load(KEYS.completions).filter(c => set.has(c.goalId));
+export async function getCompletionForActionDate(actionId, date) {
+  const { data, error } = await supabase.from('action_completions').select('id')
+    .eq('action_id', actionId).eq('completed_date', date).eq('user_id', uid()).maybeSingle();
+  if (error || !data) return null;
+  return data;
 }
 
-export function getCompletionForActionDate(actionId, date) {
-  return load(KEYS.completions).find(c => c.actionId === actionId && c.completedDate === date) || null;
+export async function insertCompletion(c) {
+  const { data, error } = await supabase.from('action_completions').insert({
+    user_id: uid(), action_id: c.actionId, goal_id: c.goalId,
+    completed_date: c.completedDate,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function insertCompletion(c) {
-  const completions = load(KEYS.completions);
-  const id = nextId(completions);
-  completions.push({ id, ...c, createdAt: nowStr() });
-  save(KEYS.completions, completions);
-  return id;
+export async function deleteCompletion(actionId, date) {
+  const { error } = await supabase.from('action_completions').delete()
+    .eq('action_id', actionId).eq('completed_date', date).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function deleteCompletion(actionId, date) {
-  save(KEYS.completions, load(KEYS.completions).filter(
-    c => !(c.actionId === actionId && c.completedDate === date)
-  ));
-}
-
-export function updateCompletionNote(actionId, date, workoutNote) {
-  const completions = load(KEYS.completions);
-  const idx = completions.findIndex(c => c.actionId === actionId && c.completedDate === date);
-  if (idx !== -1) { completions[idx].workoutNote = workoutNote; save(KEYS.completions, completions); }
-}
-
-export function getCompletionsInRange(startDate, endDate) {
-  return load(KEYS.completions).filter(c => c.completedDate >= startDate && c.completedDate <= endDate);
+export async function getCompletionsInRange(startDate, endDate) {
+  const { data, error } = await supabase.from('action_completions').select('*')
+    .eq('user_id', uid()).gte('completed_date', startDate).lte('completed_date', endDate);
+  if (error) throw error;
+  return (data || []).map(mapCompletion);
 }
 
 // ── Habits ─────────────────────────────────────────────────────────────────────
 
-export function getHabits() {
-  return load(KEYS.habits).sort((a, b) => {
-    if (a.type !== b.type) return b.type.localeCompare(a.type);
-    return a.createdAt.localeCompare(b.createdAt);
-  });
+export async function getHabits() {
+  const { data, error } = await supabase.from('habits').select('*')
+    .eq('user_id', uid()).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(mapHabit);
 }
 
-export function getHabitById(id) {
-  return load(KEYS.habits).find(h => h.id === id) || null;
+export async function insertHabit(h) {
+  const { data, error } = await supabase.from('habits').insert({
+    user_id: uid(), name: h.name, type: h.type,
+    point_value: h.pointValue || 20, traits: h.traits || [],
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function insertHabit(h) {
-  const habits = load(KEYS.habits);
-  const id = nextId(habits);
-  habits.push({
-    id, ...h,
-    traits: Array.isArray(h.traits) ? h.traits : JSON.parse(h.traits || '[]'),
-    createdAt: nowStr(),
-  });
-  save(KEYS.habits, habits);
-  return id;
+export async function deleteHabit(id) {
+  await supabase.from('habit_logs').delete().eq('habit_id', id).eq('user_id', uid());
+  const { error } = await supabase.from('habits').delete().eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function deleteHabit(id) {
-  save(KEYS.habits,    load(KEYS.habits).filter(h => h.id !== id));
-  save(KEYS.habitLogs, load(KEYS.habitLogs).filter(l => l.habitId !== id));
+export async function getHabitLogsForDate(date) {
+  const { data, error } = await supabase.from('habit_logs').select('*')
+    .eq('user_id', uid()).eq('log_date', date);
+  if (error) throw error;
+  return (data || []).map(mapHabitLog);
 }
 
-// ── Habit Logs ─────────────────────────────────────────────────────────────────
-
-export function getHabitLogsForDate(date) {
-  return load(KEYS.habitLogs).filter(l => l.logDate === date);
+export async function getHabitLogForDate(habitId, date) {
+  const { data } = await supabase.from('habit_logs').select('*')
+    .eq('habit_id', habitId).eq('log_date', date).eq('user_id', uid()).maybeSingle();
+  return data ? mapHabitLog(data) : null;
 }
 
-export function getHabitLogForDate(habitId, date) {
-  return load(KEYS.habitLogs).find(l => l.habitId === habitId && l.logDate === date) || null;
-}
-
-export function insertHabitLog(habitId, date) {
-  const logs = load(KEYS.habitLogs);
-  const id = nextId(logs);
-  logs.push({ id, habitId, logDate: date, createdAt: nowStr() });
-  save(KEYS.habitLogs, logs);
-  return id;
+export async function insertHabitLog(habitId, date) {
+  const { data, error } = await supabase.from('habit_logs').insert({
+    user_id: uid(), habit_id: habitId, log_date: date,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
 // ── Todos ──────────────────────────────────────────────────────────────────────
 
-export function getTodos() {
-  return load(KEYS.todos).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+export async function getTodos() {
+  const { data, error } = await supabase.from('todos').select('*')
+    .eq('user_id', uid()).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(mapTodo);
 }
 
-export function getTodoById(id) {
-  return load(KEYS.todos).find(t => t.id === id) || null;
+export async function insertTodo(t) {
+  const { data, error } = await supabase.from('todos').insert({
+    user_id: uid(), label: t.label,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function insertTodo(t) {
-  const todos = load(KEYS.todos);
-  const id = nextId(todos);
-  todos.push({ id, label: t.label, createdAt: nowStr() });
-  save(KEYS.todos, todos);
-  return id;
-}
-
-export function deleteTodo(id) {
-  save(KEYS.todos, load(KEYS.todos).filter(t => t.id !== id));
+export async function deleteTodo(id) {
+  const { error } = await supabase.from('todos').delete()
+    .eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
 // ── Planner Items ──────────────────────────────────────────────────────────────
 
-export function getPlannerItemsForDate(date) {
-  return load(KEYS.planner)
-    .filter(i => i.planDate === date)
-    .sort((a, b) => {
-      if (a.startTime && b.startTime) return a.startTime.localeCompare(b.startTime);
-      if (a.startTime) return -1;
-      if (b.startTime) return 1;
-      return a.createdAt.localeCompare(b.createdAt);
-    });
+export async function getPlannerItemsForDate(date) {
+  const { data, error } = await supabase.from('planner_items').select('*')
+    .eq('user_id', uid()).eq('plan_date', date)
+    .order('start_time', { ascending: true, nullsFirst: false });
+  if (error) throw error;
+  return (data || []).map(mapPlannerItem);
 }
 
-export function getPlannerItemsForSource(planDate, sourceType, sourceId) {
-  return load(KEYS.planner).filter(
-    i => i.planDate === planDate && i.sourceType === sourceType && i.sourceId === sourceId
-  );
+export async function getPlannerItemsForSource(planDate, sourceType, sourceId) {
+  const { data } = await supabase.from('planner_items').select('id')
+    .eq('user_id', uid()).eq('plan_date', planDate)
+    .eq('source_type', sourceType).eq('source_id', sourceId);
+  return data || [];
 }
 
-export function insertPlannerItem(item) {
-  const items = load(KEYS.planner);
-  const id = nextId(items);
-  items.push({ id, ...item, completed: false, createdAt: nowStr() });
-  save(KEYS.planner, items);
-  return id;
+export async function insertPlannerItem(item) {
+  const { data, error } = await supabase.from('planner_items').insert({
+    user_id: uid(), plan_date: item.planDate, label: item.label,
+    start_time: item.startTime || null, source_type: item.sourceType || 'custom',
+    source_id: item.sourceId || null, completed: 0,
+    notification_id: item.notificationId || null,
+    notification_time: item.notificationTime || null,
+    point_value: item.pointValue || 10,
+    goal_id: item.goalId || null, goal_title: item.goalTitle || null,
+    metric_type: item.metricType || 'checkbox',
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function updatePlannerItemCompleted(id, completed) {
-  const items = load(KEYS.planner);
-  const idx = items.findIndex(i => i.id === id);
-  if (idx !== -1) { items[idx].completed = completed; save(KEYS.planner, items); }
+export async function updatePlannerItemCompleted(id, completed) {
+  const { error } = await supabase.from('planner_items')
+    .update({ completed: completed ? 1 : 0 }).eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function deletePlannerItem(id) {
-  save(KEYS.planner, load(KEYS.planner).filter(i => i.id !== id));
+export async function deletePlannerItem(id) {
+  const { error } = await supabase.from('planner_items').delete()
+    .eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function updatePlannerItemStartTime(id, startTime) {
-  const items = load(KEYS.planner);
-  const idx = items.findIndex(i => i.id === id);
-  if (idx !== -1) { items[idx].startTime = startTime; save(KEYS.planner, items); }
+export async function updatePlannerItemStartTime(id, startTime) {
+  const { error } = await supabase.from('planner_items')
+    .update({ start_time: startTime }).eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
 // ── Point Log ──────────────────────────────────────────────────────────────────
 
-export function insertPointLog(entry) {
-  const log = load(KEYS.pointLog);
-  const id = nextId(log);
-  log.push({ id, ...entry, createdAt: nowStr() });
-  save(KEYS.pointLog, log);
-}
-
-export function deletePointLogEntry(sourceType, sourceId, date) {
-  save(KEYS.pointLog, load(KEYS.pointLog).filter(
-    e => !(e.sourceType === sourceType && e.sourceId === sourceId && e.logDate === date)
-  ));
-}
-
-export function getTodayPoints(date) {
-  return load(KEYS.pointLog)
-    .filter(e => e.logDate === date)
-    .reduce((s, e) => s + (e.points || 0), 0);
-}
-
-export function getTotalXP() {
-  return load(KEYS.pointLog)
-    .filter(e => e.points > 0)
-    .reduce((s, e) => s + e.points, 0);
-}
-
-export function getPointsByDate(dates) {
-  const set = new Set(dates);
-  const map = {};
-  load(KEYS.pointLog).forEach(e => {
-    if (set.has(e.logDate)) map[e.logDate] = (map[e.logDate] || 0) + e.points;
+export async function insertPointLog(entry) {
+  const { error } = await supabase.from('point_log').insert({
+    user_id: uid(), source_type: entry.sourceType,
+    source_id: entry.sourceId || null,
+    points: entry.points, log_date: entry.logDate,
   });
+  if (error) throw error;
+}
+
+export async function deletePointLogEntry(sourceType, sourceId, date) {
+  let q = supabase.from('point_log').delete()
+    .eq('user_id', uid()).eq('source_type', sourceType).eq('log_date', date);
+  if (sourceId) q = q.eq('source_id', sourceId);
+  await q;
+}
+
+export async function getTodayPoints(date) {
+  const { data } = await supabase.from('point_log').select('points')
+    .eq('user_id', uid()).eq('log_date', date);
+  return (data || []).reduce((s, e) => s + (e.points || 0), 0);
+}
+
+export async function getTotalXP() {
+  const { data } = await supabase.from('point_log').select('points')
+    .eq('user_id', uid()).gt('points', 0);
+  return (data || []).reduce((s, e) => s + e.points, 0);
+}
+
+export async function getPointsByDate(dates) {
+  if (!dates.length) return {};
+  const { data } = await supabase.from('point_log').select('points, log_date')
+    .eq('user_id', uid()).in('log_date', dates);
+  const map = {};
+  (data || []).forEach(e => { map[e.log_date] = (map[e.log_date] || 0) + e.points; });
   return map;
 }
 
-export function getStreak(today) {
-  const dates = new Set(
-    load(KEYS.pointLog).filter(e => e.points > 0).map(e => e.logDate)
-  );
+export async function getStreak(today) {
+  const { data } = await supabase.from('point_log').select('log_date')
+    .eq('user_id', uid()).gt('points', 0);
+  const dates = new Set((data || []).map(e => e.log_date));
   if (!dates.size) return 0;
   let streak = 0;
   let check = today;
@@ -330,128 +414,95 @@ export function getStreak(today) {
   return streak;
 }
 
-export function getLogsInRange(startDate, endDate) {
-  return load(KEYS.pointLog).filter(e => e.logDate >= startDate && e.logDate <= endDate);
-}
-
-// ── Bad Habits ─────────────────────────────────────────────────────────────────
-
-export function getBadHabits() {
-  return load(KEYS.badHabits).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-}
-
-export function insertBadHabit(h) {
-  const habits = load(KEYS.badHabits);
-  const id = nextId(habits);
-  habits.push({ id, name: String(h.name || '').trim(), pointValue: Math.abs(parseInt(h.pointValue, 10) || 15), createdAt: nowStr() });
-  save(KEYS.badHabits, habits);
-  return id;
-}
-
-export function deleteBadHabit(id) {
-  save(KEYS.badHabits,    load(KEYS.badHabits).filter(h => h.id !== id));
-  save(KEYS.badHabitLogs, load(KEYS.badHabitLogs).filter(l => l.habitId !== id));
-}
-
-export function getBadHabitLogsForDate(date) {
-  return load(KEYS.badHabitLogs).filter(l => l.logDate === date);
-}
-
-export function insertBadHabitLog(habitId, date) {
-  const logs = load(KEYS.badHabitLogs);
-  const id = nextId(logs);
-  logs.push({ id, habitId, logDate: date, createdAt: nowStr() });
-  save(KEYS.badHabitLogs, logs);
-  return id;
-}
-
-export function deleteBadHabitLog(habitId, date) {
-  save(KEYS.badHabitLogs, load(KEYS.badHabitLogs).filter(l => !(l.habitId === habitId && l.logDate === date)));
+export async function getLogsInRange(startDate, endDate) {
+  const { data } = await supabase.from('point_log').select('*')
+    .eq('user_id', uid()).gte('log_date', startDate).lte('log_date', endDate);
+  return (data || []).map(mapPointLog);
 }
 
 // ── Projects ───────────────────────────────────────────────────────────────────
 
-export function getProjects() {
-  return load(KEYS.projects);
+export async function getProjects() {
+  const { data } = await supabase.from('projects').select('*').eq('user_id', uid());
+  return (data || []).map(mapProject);
 }
 
-export function getProjectsForGoal(goalId) {
-  return load(KEYS.projects)
-    .filter(p => p.goalId === goalId)
-    .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+export async function getProjectsForGoal(goalId) {
+  const { data } = await supabase.from('projects').select('*')
+    .eq('goal_id', goalId).eq('user_id', uid()).order('order_index', { ascending: true });
+  return (data || []).map(mapProject);
 }
 
-export function getProject(id) {
-  return load(KEYS.projects).find(p => p.id === id) || null;
+export async function getProject(id) {
+  const { data } = await supabase.from('projects').select('*')
+    .eq('id', id).eq('user_id', uid()).maybeSingle();
+  return data ? mapProject(data) : null;
 }
 
-export function insertProject(p) {
-  const projects = load(KEYS.projects);
-  const id = nextId(projects);
-  projects.push({
-    id,
-    goalId: p.goalId,
+export async function insertProject(p) {
+  const { data, error } = await supabase.from('projects').insert({
+    user_id: uid(), goal_id: p.goalId,
     name: String(p.name || '').slice(0, 100),
     description: String(p.description || ''),
-    status: p.status || 'active',
-    orderIndex: p.orderIndex || 0,
-    createdAt: nowStr(),
-  });
-  save(KEYS.projects, projects);
-  return id;
+    status: p.status || 'active', order_index: p.orderIndex || 0,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function updateProject(id, updates) {
-  const projects = load(KEYS.projects);
-  const idx = projects.findIndex(p => p.id === id);
-  if (idx !== -1) { projects[idx] = { ...projects[idx], ...updates }; save(KEYS.projects, projects); }
+export async function updateProject(id, updates) {
+  const { error } = await supabase.from('projects').update(updates)
+    .eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function deleteProject(id) {
-  save(KEYS.projects,     load(KEYS.projects).filter(p => p.id !== id));
-  save(KEYS.projectTasks, load(KEYS.projectTasks).filter(t => t.projectId !== id));
+export async function deleteProject(id) {
+  const { error } = await supabase.from('projects').delete()
+    .eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function deleteProjectsForGoal(goalId) {
-  const toDelete = new Set(load(KEYS.projects).filter(p => p.goalId === goalId).map(p => p.id));
-  save(KEYS.projects,     load(KEYS.projects).filter(p => p.goalId !== goalId));
-  save(KEYS.projectTasks, load(KEYS.projectTasks).filter(t => !toDelete.has(t.projectId)));
+export async function deleteProjectsForGoal(goalId) {
+  const { error } = await supabase.from('projects').delete()
+    .eq('goal_id', goalId).eq('user_id', uid());
+  if (error) throw error;
 }
 
 // ── Project Tasks ──────────────────────────────────────────────────────────────
 
-export function getAllProjectTasks() {
-  return load(KEYS.projectTasks);
+export async function getAllProjectTasks() {
+  const { data } = await supabase.from('project_tasks').select('*').eq('user_id', uid());
+  return (data || []).map(mapProjectTask);
 }
 
-export function getTasksForProject(projectId) {
-  return load(KEYS.projectTasks)
-    .filter(t => t.projectId === projectId)
-    .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+export async function getTasksForProject(projectId) {
+  const { data } = await supabase.from('project_tasks').select('*')
+    .eq('project_id', projectId).eq('user_id', uid()).order('order_index', { ascending: true });
+  return (data || []).map(mapProjectTask);
 }
 
-export function insertProjectTask(t) {
-  const tasks = load(KEYS.projectTasks);
-  const id = nextId(tasks);
-  tasks.push({
-    id,
-    projectId: t.projectId,
+export async function insertProjectTask(t) {
+  const { data, error } = await supabase.from('project_tasks').insert({
+    user_id: uid(), project_id: t.projectId,
     name: String(t.name || '').slice(0, 200),
-    completed: 0,
-    dueDate: t.dueDate || null,
-    orderIndex: t.orderIndex || 0,
-    createdAt: nowStr(),
-  });
-  save(KEYS.projectTasks, tasks);
-  return id;
+    completed: 0, due_date: t.dueDate || null, order_index: t.orderIndex || 0,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
-export function updateProjectTask(id, updates) {
-  const tasks = load(KEYS.projectTasks);
-  const idx = tasks.findIndex(t => t.id === id);
-  if (idx !== -1) { tasks[idx] = { ...tasks[idx], ...updates }; save(KEYS.projectTasks, tasks); }
+export async function updateProjectTask(id, updates) {
+  const u = {};
+  if (updates.completed !== undefined) u.completed = updates.completed;
+  if (updates.name !== undefined) u.name = updates.name;
+  if (updates.dueDate !== undefined) u.due_date = updates.dueDate;
+  const { error } = await supabase.from('project_tasks').update(u)
+    .eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }
 
-export function deleteProjectTask(id) {
-  save(KEYS.projectTasks, load(KEYS.projectTasks).filter(t => t.id !== id));
+export async function deleteProjectTask(id) {
+  const { error } = await supabase.from('project_tasks').delete()
+    .eq('id', id).eq('user_id', uid());
+  if (error) throw error;
 }

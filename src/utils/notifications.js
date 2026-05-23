@@ -1,5 +1,5 @@
 import { savePushSubscription } from './supabase';
-import { getUser } from './storage';
+import { getUserId } from './storage';
 
 const SCHEDULE_KEY = 'levelup_notif_schedules';
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
@@ -131,7 +131,7 @@ async function syncSchedulesToServer() {
     return;
   }
 
-  const user = getUser();
+  const user = { userId: getUserId() };
   if (!user?.userId) {
     console.warn('[Push] No user ID found — skipping sync');
     return;
@@ -231,7 +231,7 @@ export async function debugPushSubscription(onStep) {
   }
 
   // 8. Save to Supabase
-  const user = getUser();
+  const user = { userId: getUserId() };
   if (!user?.userId) {
     step('Subscription saved to Supabase', false, 'No user ID — complete onboarding first');
     return;

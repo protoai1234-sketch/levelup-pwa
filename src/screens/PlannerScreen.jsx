@@ -11,7 +11,6 @@ import { cancelPlannerNotification } from '../utils/notifications';
 import { todayString, formatDateFull, formatTime, addDays } from '../utils/dateHelpers';
 import BottomSheet from '../components/BottomSheet';
 
-// Source pill colors per type
 function SourcePill({ sourceType }) {
   if (sourceType === 'action') {
     return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-success/20 text-success flex-shrink-0">Goal</span>;
@@ -21,8 +20,6 @@ function SourcePill({ sourceType }) {
   }
   return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-textMuted/20 text-textMuted flex-shrink-0">Custom</span>;
 }
-
-// ── Planner item row ──────────────────────────────────────────────────────────
 
 function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onTimeChange, onTimeSave, onComplete, onDelete }) {
   const isEditing = editingTimeId === item.id;
@@ -57,7 +54,6 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Time column */}
         <div className="w-[52px] flex-shrink-0">
           {isEditing ? (
             <input
@@ -79,7 +75,6 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
           )}
         </div>
 
-        {/* Label + source pill + goal subtitle */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
             <div className={`text-[15px] leading-snug truncate ${item.completed ? 'line-through text-textMuted' : 'text-textPrimary'}`}>
@@ -92,12 +87,10 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
           )}
         </div>
 
-        {/* Point badge */}
         <span className={`text-[13px] font-bold flex-shrink-0 ${item.completed ? 'text-textMuted' : 'text-success'}`}>
           +{item.pointValue || 10}
         </span>
 
-        {/* Completion checkbox */}
         <button
           onClick={() => !item.completed && onComplete(item)}
           className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -111,13 +104,12 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
   );
 }
 
-// ── Main screen ──────────────────────────────────────────────────────────────
-
 export default function PlannerScreen() {
   const today = todayString();
   const [selectedDate, setSelectedDate] = useState(today);
   const [items, setItems] = useState([]);
   const [todayPts, setTodayPts] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const [editingTimeId, setEditingTimeId] = useState(null);
   const [editingTimeValue, setEditingTimeValue] = useState('');
@@ -132,45 +124,51 @@ export default function PlannerScreen() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   useEffect(() => {
-    autoPopulatePlannerForDate(selectedDate);
-    loadData();
+    autoPopulatePlannerForDate(selectedDate).catch(() => {}).finally(() => loadData());
   }, [selectedDate]);
 
-  function loadData() {
-    const rawItems = getPlannerItemsForDate(selectedDate).map(item => {
-      if (item.sourceType === 'action' && !item.goalTitle) {
-        const action = getActionById(item.sourceId);
-        if (action) {
-          const goal = getGoal(action.goalId);
-          return { ...item, goalTitle: goal?.title || '', pointValue: item.pointValue ?? action.pointValue };
+  async function loadData() {
+    setLoading(true);
+    try {
+      const rawItems = await getPlannerItemsForDate(selectedDate);
+      // Backfill goalTitle for action items that are missing it
+      const enriched = await Promise.all(rawItems.map(async item => {
+        if (item.sourceType === 'action' && !item.goalTitle && item.sourceId) {
+          const action = await getActionById(item.sourceId);
+          if (action) {
+            const goal = await getGoal(action.goalId);
+            return { ...item, goalTitle: goal?.title || '', pointValue: item.pointValue ?? action.pointValue };
+          }
         }
-      }
-      return item;
-    });
-    setItems(rawItems);
-    setTodayPts(getTodayPoints(today));
+        return item;
+      }));
+      setItems(enriched);
+      setTodayPts(await getTodayPoints(today));
+    } catch (_) {}
+    setLoading(false);
   }
 
-  function handleComplete(item) {
-    updatePlannerItemCompleted(item.id, true);
+  async function handleComplete(item) {
+    try {
+      await updatePlannerItemCompleted(item.id, true);
 
-    if (item.sourceType === 'action') {
-      const action = getActionById(item.sourceId);
-      if (action) {
-        const existing = getCompletionForActionDate(action.id, selectedDate);
-        if (!existing) {
-          insertCompletion({ actionId: action.id, goalId: action.goalId, completedDate: selectedDate });
-          insertPointLog({ sourceType: 'action', sourceId: action.id, points: action.pointValue, logDate: selectedDate });
+      if (item.sourceType === 'action') {
+        const action = await getActionById(item.sourceId);
+        if (action) {
+          const existing = await getCompletionForActionDate(action.id, selectedDate);
+          if (!existing) {
+            await insertCompletion({ actionId: action.id, goalId: action.goalId, completedDate: selectedDate });
+            await insertPointLog({ sourceType: 'action', sourceId: action.id, points: action.pointValue, logDate: selectedDate });
+          }
         }
+      } else {
+        if (item.sourceId) await deleteTodo(item.sourceId);
+        await insertPointLog({ sourceType: 'planner', sourceId: item.id, points: item.pointValue || 10, logDate: selectedDate });
       }
-    } else {
-      // todo and custom both award 10pts and delete the underlying todo
-      if (item.sourceId) deleteTodo(item.sourceId);
-      insertPointLog({ sourceType: 'planner', sourceId: item.id, points: item.pointValue || 10, logDate: selectedDate });
-    }
 
-    cancelPlannerNotification(item.notificationId);
-    loadData();
+      cancelPlannerNotification(item.notificationId);
+      await loadData();
+    } catch (_) {}
   }
 
   function handleTimeEdit(itemId, currentTime) {
@@ -178,20 +176,24 @@ export default function PlannerScreen() {
     setEditingTimeValue(currentTime);
   }
 
-  function handleTimeSave(itemId, newTime) {
-    if (newTime) updatePlannerItemStartTime(itemId, newTime);
+  async function handleTimeSave(itemId, newTime) {
+    try {
+      if (newTime) await updatePlannerItemStartTime(itemId, newTime);
+    } catch (_) {}
     setEditingTimeId(null);
     setEditingTimeValue('');
-    loadData();
+    await loadData();
   }
 
   function handleDelete(item) { setDeleteConfirm(item); }
 
-  function confirmRemove() {
-    cancelPlannerNotification(deleteConfirm.notificationId);
-    deletePlannerItem(deleteConfirm.id);
+  async function confirmRemove() {
+    try {
+      cancelPlannerNotification(deleteConfirm.notificationId);
+      await deletePlannerItem(deleteConfirm.id);
+    } catch (_) {}
     setDeleteConfirm(null);
-    loadData();
+    await loadData();
   }
 
   function openAddModal() { setAddStep('options'); }
@@ -205,11 +207,17 @@ export default function PlannerScreen() {
     setCustomTime('');
   }
 
-  function handlePickTodos() {
+  async function handlePickTodos() {
     setAddStep('todo-list');
-    const todos = getTodos();
-    const available = todos.filter(t => !getPlannerItemsForSource(selectedDate, 'todo', t.id).length);
-    setTodoSources(available);
+    try {
+      const todos = await getTodos();
+      const checks = await Promise.all(todos.map(t =>
+        getPlannerItemsForSource(selectedDate, 'todo', t.id).then(r => r.length === 0 ? t : null)
+      ));
+      setTodoSources(checks.filter(Boolean));
+    } catch (_) {
+      setTodoSources([]);
+    }
   }
 
   function handleSelectTodo(todo) {
@@ -218,27 +226,31 @@ export default function PlannerScreen() {
     setAddStep('todo-time');
   }
 
-  function handleConfirmTodo() {
-    insertPlannerItem({
-      planDate: selectedDate, label: pendingTodo.label,
-      startTime: todoStartTime || null, sourceType: 'todo', sourceId: pendingTodo.id,
-      notificationId: null, notificationTime: null, pointValue: 10,
-    });
+  async function handleConfirmTodo() {
+    try {
+      await insertPlannerItem({
+        planDate: selectedDate, label: pendingTodo.label,
+        startTime: todoStartTime || null, sourceType: 'todo', sourceId: pendingTodo.id,
+        notificationId: null, notificationTime: null, pointValue: 10,
+      });
+    } catch (_) {}
     closeAddModal();
-    loadData();
+    await loadData();
   }
 
-  function handleAddCustom() {
+  async function handleAddCustom() {
     const label = customLabel.trim();
     if (!label) return;
-    const todoId = insertTodo({ label });
-    insertPlannerItem({
-      planDate: selectedDate, label,
-      startTime: customTime || null, sourceType: 'custom', sourceId: todoId,
-      notificationId: null, notificationTime: null, pointValue: 10,
-    });
+    try {
+      const todoId = await insertTodo({ label });
+      await insertPlannerItem({
+        planDate: selectedDate, label,
+        startTime: customTime || null, sourceType: 'custom', sourceId: todoId,
+        notificationId: null, notificationTime: null, pointValue: 10,
+      });
+    } catch (_) {}
     closeAddModal();
-    loadData();
+    await loadData();
   }
 
   const doneCount = items.filter(i => i.completed).length;
@@ -250,7 +262,6 @@ export default function PlannerScreen() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center px-4 py-3 border-b border-border bg-card flex-shrink-0 gap-2">
         <button onClick={() => setSelectedDate(d => addDays(d, -1))} className="text-primary text-[28px] font-light w-9 flex items-center justify-center flex-shrink-0">‹</button>
         <div className="flex-1 flex flex-col items-center">
@@ -266,37 +277,39 @@ export default function PlannerScreen() {
         </div>
       </div>
 
-      {/* Capacity summary */}
-      <div className="text-[12px] text-textMuted font-semibold text-center py-2 flex-shrink-0">
-        {items.length === 0 ? 'Nothing planned yet' : `${items.length} item${items.length !== 1 ? 's' : ''} planned · ${doneCount} done`}
-      </div>
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center"><div className="spinner" /></div>
+      ) : (
+        <>
+          <div className="text-[12px] text-textMuted font-semibold text-center py-2 flex-shrink-0">
+            {items.length === 0 ? 'Nothing planned yet' : `${items.length} item${items.length !== 1 ? 's' : ''} planned · ${doneCount} done`}
+          </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-4 pt-2 pb-6">
-
-          {/* Unified timeline */}
-          {items.length > 0 ? (
-            <div className="bg-card rounded-xl border border-border overflow-hidden mb-4">
-              {items.map((item, i) => (
-                <div key={item.id}>
-                  {i > 0 && <div className="h-px bg-border" />}
-                  <PlannerItemRow item={item} {...sharedRowProps} />
+          <div className="flex-1 overflow-y-auto">
+            <div className="px-4 pt-2 pb-6">
+              {items.length > 0 ? (
+                <div className="bg-card rounded-xl border border-border overflow-hidden mb-4">
+                  {items.map((item, i) => (
+                    <div key={item.id}>
+                      {i > 0 && <div className="h-px bg-border" />}
+                      <PlannerItemRow item={item} {...sharedRowProps} />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center py-10">
-              <div className="text-5xl mb-3">📋</div>
-              <div className="text-textMuted text-[14px] font-semibold">Goal actions appear here automatically</div>
-              <div className="text-textMuted text-[12px] mt-1">Create a goal in the Goals tab to get started</div>
-            </div>
-          )}
+              ) : (
+                <div className="flex flex-col items-center py-10">
+                  <div className="text-5xl mb-3">📋</div>
+                  <div className="text-textMuted text-[14px] font-semibold">Goal actions appear here automatically</div>
+                  <div className="text-textMuted text-[12px] mt-1">Create a goal in the Goals tab to get started</div>
+                </div>
+              )}
 
-          <button onClick={openAddModal} className="dashed-btn w-full">+ Add to Plan</button>
-        </div>
-      </div>
+              <button onClick={openAddModal} className="dashed-btn w-full">+ Add to Plan</button>
+            </div>
+          </div>
+        </>
+      )}
 
-      {/* Remove confirm */}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteConfirm(null)} />
@@ -314,7 +327,6 @@ export default function PlannerScreen() {
         </div>
       )}
 
-      {/* Add modal */}
       <BottomSheet
         visible={addStep !== null}
         onClose={closeAddModal}

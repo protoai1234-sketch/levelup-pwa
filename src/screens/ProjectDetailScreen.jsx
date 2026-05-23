@@ -35,50 +35,65 @@ export default function ProjectDetailScreen({ projectId, onBack }) {
   const [tasks, setTasks] = useState([]);
   const [newTaskName, setNewTaskName] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, [projectId]);
 
-  function loadData() {
-    setProject(getProject(projectId));
-    setTasks(getTasksForProject(projectId));
+  async function loadData() {
+    setLoading(true);
+    try {
+      const [proj, taskList] = await Promise.all([
+        getProject(projectId),
+        getTasksForProject(projectId),
+      ]);
+      setProject(proj);
+      setTasks(taskList);
+    } catch (_) {}
+    setLoading(false);
   }
 
-  function handleToggleTask(task) {
-    if (task.completed) {
-      updateProjectTask(task.id, { completed: 0 });
-    } else {
-      updateProjectTask(task.id, { completed: 1 });
-      insertPointLog({
-        sourceType: 'project_task',
-        sourceId: task.id,
-        points: 15,
-        logDate: todayString(),
-      });
-    }
-    loadData();
+  async function handleToggleTask(task) {
+    try {
+      if (task.completed) {
+        await updateProjectTask(task.id, { completed: 0 });
+      } else {
+        await updateProjectTask(task.id, { completed: 1 });
+        await insertPointLog({
+          sourceType: 'project_task',
+          sourceId: task.id,
+          points: 15,
+          logDate: todayString(),
+        });
+      }
+      await loadData();
+    } catch (_) {}
   }
 
-  function handleAddTask() {
+  async function handleAddTask() {
     const name = newTaskName.trim();
     if (!name) return;
-    insertProjectTask({ projectId, name, orderIndex: tasks.length });
-    setNewTaskName('');
-    setShowAdd(false);
-    loadData();
+    try {
+      await insertProjectTask({ projectId, name, orderIndex: tasks.length });
+      setNewTaskName('');
+      setShowAdd(false);
+      await loadData();
+    } catch (_) {}
   }
 
-  function handleDeleteTask(id) {
-    deleteProjectTask(id);
-    loadData();
+  async function handleDeleteTask(id) {
+    try {
+      await deleteProjectTask(id);
+      await loadData();
+    } catch (_) {}
   }
 
+  if (loading) return <div className="flex-1 flex items-center justify-center"><div className="spinner" /></div>;
   if (!project) return null;
 
   const doneCount = tasks.filter(t => t.completed).length;
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card flex-shrink-0">
         <button onClick={onBack} className="text-primary font-semibold text-[15px] w-16">‹ Back</button>
         <span className="flex-1 text-textPrimary font-bold text-center text-[16px] truncate">{project.name}</span>

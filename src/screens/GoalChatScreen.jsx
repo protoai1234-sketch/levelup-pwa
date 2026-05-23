@@ -21,8 +21,6 @@ function buildGoalContext(goal, actions) {
   return `CONTEXT — I am editing an existing goal. Current configuration:\n\nTitle: ${goal.title}\nDescription: ${goal.description || '(none)'}\nType: ${goal.goalType}\nEnd date: ${goal.endDate}\nActive days: ${JSON.stringify(goal.activeDays)}\n\nCurrent daily actions:\n${actions.map(a => `- ${a.name} (${a.pointValue}pts)`).join('\n')}\n\nThe user wants to make changes to this goal.`;
 }
 
-// Anthropic requires messages to start with a user turn.
-// In edit mode, prepend a hidden context exchange so the AI knows the existing goal.
 function toApiMessages(msgs, isEditMode, editGoal, editActions) {
   const first = msgs.findIndex(m => m.role === 'user');
   if (first === -1) return [];
@@ -68,8 +66,6 @@ function validateGoalData(raw) {
   };
 }
 
-// Scans API messages for a time the user gave in response to the notification question.
-// Returns HH:MM (24h) string if found, null otherwise.
 function extractNotifTime(apiMessages) {
   let pastReminderQuestion = false;
   for (const msg of apiMessages) {
@@ -79,10 +75,8 @@ function extractNotifTime(apiMessages) {
     }
     if (pastReminderQuestion && msg.role === 'user') {
       const text = msg.content;
-      // HH:MM already in 24h format
       const hh24 = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(text);
       if (hh24) return hh24[0].padStart(5, '0').slice(0, 5);
-      // 7am / 7:30 PM / 6 am etc.
       const ampm = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i.exec(text);
       if (ampm) {
         let h = parseInt(ampm[1], 10);
@@ -128,14 +122,9 @@ function TypingBubble() {
 export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, editGoal }) {
   const isEditMode = !!editGoalId;
 
-  // Fetch existing actions once on mount when in edit mode
-  const [editActions] = useState(() => isEditMode ? getActionsForGoal(editGoalId) : []);
-
-  const initialMessage = isEditMode && editGoal
-    ? buildEditGreeting(editGoal, editActions)
-    : GREETING;
-
-  const [messages, setMessages] = useState([{ role: 'assistant', content: initialMessage }]);
+  const [editActions, setEditActions] = useState([]);
+  const [ready, setReady] = useState(!isEditMode);
+  const [messages, setMessages] = useState([{ role: 'assistant', content: isEditMode ? '…' : GREETING }]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -145,6 +134,15 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
   const bottomRef = useRef(null);
 
   useEffect(() => {
+    if (!isEditMode || !editGoalId) return;
+    getActionsForGoal(editGoalId).then(acts => {
+      setEditActions(acts);
+      setMessages([{ role: 'assistant', content: buildEditGreeting(editGoal, acts) }]);
+      setReady(true);
+    }).catch(() => setReady(true));
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, building]);
 
@@ -152,10 +150,10 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
     return toApiMessages(msgs, isEditMode, editGoal, editActions);
   }
 
-  function saveProjects(goalId, rawProjects) {
+  async function saveProjects(goalId, rawProjects) {
     if (!Array.isArray(rawProjects) || rawProjects.length === 0) return;
     for (const [pi, p] of rawProjects.entries()) {
-      const projectId = insertProject({
+      const projectId = await insertProject({
         goalId,
         name: String(p.name || '').slice(0, 100),
         description: String(p.description || ''),
@@ -164,7 +162,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
       });
       if (Array.isArray(p.tasks)) {
         for (const [ti, t] of p.tasks.entries()) {
-          insertProjectTask({
+          await insertProjectTask({
             projectId,
             name: String(t.name || '').slice(0, 200),
             dueDate: t.due_date || null,
@@ -175,7 +173,6 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
     }
   }
 
-  // Build (or rebuild) the goal using a known messages array to avoid stale state closures.
   async function executeBuild(apiMessages) {
     setBuilding(true);
     setBuildingStep('Building your goal…');
@@ -185,7 +182,6 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
       const raw = await buildGoalFromConversation(apiMessages);
       console.log('[GoalSave] Parsed goal JSON:', JSON.stringify(raw, null, 2));
 
-      // If the AI missed the notification fields, patch them from the conversation
       const notifTime = extractNotifTime(apiMessages);
       if (notifTime && Array.isArray(raw.dailyActions)) {
         raw.dailyActions = raw.dailyActions.map(a =>
@@ -198,13 +194,12 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
       const goal = validateGoalData(raw);
 
       if (isEditMode) {
-        // Cancel old notifications and wipe old actions/projects before writing new ones
-        const oldActions = getActionsForGoal(editGoalId);
+        const oldActions = await getActionsForGoal(editGoalId);
         for (const a of oldActions) cancelNotifications(a.notificationIds || []);
-        deleteActionsForGoal(editGoalId);
-        deleteProjectsForGoal(editGoalId);
+        await deleteActionsForGoal(editGoalId);
+        await deleteProjectsForGoal(editGoalId);
 
-        updateGoal(editGoalId, {
+        await updateGoal(editGoalId, {
           title: goal.title,
           description: goal.description,
           goalType: goal.goalType,
@@ -220,7 +215,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
           const notifIds = action.notificationEnabled && action.notificationTime
             ? scheduleActionNotifications(action.name, goal.activeDays, action.notificationTime)
             : [];
-          insertAction({
+          await insertAction({
             goalId: editGoalId,
             name: action.name,
             pointValue: action.pointValue,
@@ -234,9 +229,9 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
           });
         }
 
-        saveProjects(editGoalId, raw.projects);
+        await saveProjects(editGoalId, raw.projects);
       } else {
-        const goalId = insertGoal({
+        const goalId = await insertGoal({
           title: goal.title,
           description: goal.description,
           goalType: goal.goalType,
@@ -252,7 +247,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
           const notifIds = action.notificationEnabled && action.notificationTime
             ? scheduleActionNotifications(action.name, goal.activeDays, action.notificationTime)
             : [];
-          insertAction({
+          await insertAction({
             goalId,
             name: action.name,
             pointValue: action.pointValue,
@@ -266,7 +261,7 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
           });
         }
 
-        saveProjects(goalId, raw.projects);
+        await saveProjects(goalId, raw.projects);
       }
 
       onGoalCreated();
@@ -291,7 +286,6 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
     try {
       const reply = await sendGoalChat(getApiMessages(next));
 
-      // Detect the auto-trigger phrase
       const triggered = reply.includes(READY_TRIGGER);
       const displayText = reply.replace(READY_TRIGGER, '').trim();
 
@@ -323,6 +317,19 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
 
   const headerTitle = isEditMode ? 'Edit Goal with AI' : 'AI Goal Coach';
 
+  if (!ready) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card flex-shrink-0">
+          <button onClick={onBack} className="text-primary font-semibold text-[15px] w-16">‹ Back</button>
+          <span className="flex-1 text-textPrimary font-bold text-center text-[16px]">{headerTitle}</span>
+          <span className="w-16" />
+        </div>
+        <div className="flex-1 flex items-center justify-center"><div className="spinner" /></div>
+      </div>
+    );
+  }
+
   return (
     <>
       <style>{`
@@ -333,14 +340,12 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
       `}</style>
 
       <div className="flex flex-col h-full">
-        {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card flex-shrink-0">
           <button onClick={onBack} className="text-primary font-semibold text-[15px] w-16">‹ Back</button>
           <span className="flex-1 text-textPrimary font-bold text-center text-[16px]">{headerTitle}</span>
           <span className="w-16" />
         </div>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 pt-4 pb-2">
           {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
           {loading && <TypingBubble />}
@@ -355,7 +360,6 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
           <div ref={bottomRef} />
         </div>
 
-        {/* Building progress — shown automatically when AI triggers generation */}
         {building && (
           <div className="flex-shrink-0 px-4 py-4 border-t border-border bg-card flex items-center justify-center gap-3">
             <div className="spinner" />
@@ -363,7 +367,6 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
           </div>
         )}
 
-        {/* Input — hidden while building */}
         {!building && (
           <div className="flex-shrink-0 bg-card border-t border-border px-4 py-3 safe-bottom">
             <div className="flex gap-2 items-center">

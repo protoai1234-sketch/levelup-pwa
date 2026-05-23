@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { getUser } from './utils/storage';
+import { useAuth } from './context/AuthContext';
 import { registerInAppScheduler, ensurePushSubscription } from './utils/notifications';
 import { autoPopulatePlannerForDate } from './utils/plannerUtils';
 import { todayString } from './utils/dateHelpers';
-import OnboardingScreen from './screens/OnboardingScreen';
+import AuthScreen from './screens/AuthScreen';
 import PlannerScreen from './screens/PlannerScreen';
 import TodosScreen from './screens/TodosScreen';
 import GoalsScreen from './screens/GoalsScreen';
@@ -22,34 +22,34 @@ const TABS = [
 ];
 
 export default function App() {
-  const [onboarded, setOnboarded] = useState(null);
+  const { session } = useAuth();
   const [tab, setTab] = useState('planner');
   const [subscreen, setSubscreen] = useState(null);
 
   useEffect(() => {
-    const user = getUser();
-    setOnboarded(!!(user?.displayName));
+    if (!session) return;
     registerInAppScheduler();
     ensurePushSubscription();
-    // Auto-populate today's goal actions into the Planner on every app open
-    autoPopulatePlannerForDate(todayString());
-  }, []);
+    autoPopulatePlannerForDate(todayString()).catch(() => {});
+  }, [session]);
+
+  // Still determining session — show dark splash
+  if (session === undefined) {
+    return (
+      <div className="fixed inset-0 bg-bg flex flex-col items-center justify-center gap-4">
+        <div className="w-16 h-16 rounded-2xl bg-black border border-border flex items-center justify-center">
+          <span className="text-[28px] font-black" style={{ color: '#FF6B00' }}>L</span>
+        </div>
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  if (!session) return <AuthScreen />;
 
   function navigate(screen, params = {}) { setSubscreen({ screen, params }); }
   function goBack() { setSubscreen(null); }
   function handleTabChange(id) { setTab(id); setSubscreen(null); }
-
-  if (onboarded === null) return null;
-
-  if (!onboarded) {
-    return (
-      <div className="fixed inset-0 bg-bg overflow-hidden">
-        <div className="h-full max-w-app mx-auto">
-          <OnboardingScreen onDone={() => setOnboarded(true)} />
-        </div>
-      </div>
-    );
-  }
 
   if (subscreen?.screen === 'add-goal') {
     return (
@@ -73,8 +73,7 @@ export default function App() {
           editGoalId={subscreen.params?.editGoalId}
           editGoal={subscreen.params?.editGoal}
           onGoalCreated={() => {
-            // Auto-populate today's actions from the newly created/updated goal
-            autoPopulatePlannerForDate(todayString());
+            autoPopulatePlannerForDate(todayString()).catch(() => {});
             setTab('planner');
             setSubscreen(null);
           }}
