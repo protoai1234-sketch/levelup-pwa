@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   insertGoal, insertAction, updateGoal, deleteActionsForGoal, getActionsForGoal,
+  insertProject, insertProjectTask, deleteProjectsForGoal,
 } from '../utils/storage';
 import { scheduleActionNotifications, cancelNotifications } from '../utils/notifications';
 import { sendGoalChat, buildGoalFromConversation, READY_TRIGGER } from '../utils/claude';
@@ -151,6 +152,29 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
     return toApiMessages(msgs, isEditMode, editGoal, editActions);
   }
 
+  function saveProjects(goalId, rawProjects) {
+    if (!Array.isArray(rawProjects) || rawProjects.length === 0) return;
+    for (const [pi, p] of rawProjects.entries()) {
+      const projectId = insertProject({
+        goalId,
+        name: String(p.name || '').slice(0, 100),
+        description: String(p.description || ''),
+        status: 'active',
+        orderIndex: pi,
+      });
+      if (Array.isArray(p.tasks)) {
+        for (const [ti, t] of p.tasks.entries()) {
+          insertProjectTask({
+            projectId,
+            name: String(t.name || '').slice(0, 200),
+            dueDate: t.due_date || null,
+            orderIndex: ti,
+          });
+        }
+      }
+    }
+  }
+
   // Build (or rebuild) the goal using a known messages array to avoid stale state closures.
   async function executeBuild(apiMessages) {
     setBuilding(true);
@@ -174,10 +198,11 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
       const goal = validateGoalData(raw);
 
       if (isEditMode) {
-        // Cancel old notifications and wipe old actions before writing new ones
+        // Cancel old notifications and wipe old actions/projects before writing new ones
         const oldActions = getActionsForGoal(editGoalId);
         for (const a of oldActions) cancelNotifications(a.notificationIds || []);
         deleteActionsForGoal(editGoalId);
+        deleteProjectsForGoal(editGoalId);
 
         updateGoal(editGoalId, {
           title: goal.title,
@@ -208,6 +233,8 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
             dayOfWeek: action.dayOfWeek,
           });
         }
+
+        saveProjects(editGoalId, raw.projects);
       } else {
         const goalId = insertGoal({
           title: goal.title,
@@ -238,6 +265,8 @@ export default function GoalChatScreen({ onBack, onGoalCreated, editGoalId, edit
             dayOfWeek: action.dayOfWeek,
           });
         }
+
+        saveProjects(goalId, raw.projects);
       }
 
       onGoalCreated();

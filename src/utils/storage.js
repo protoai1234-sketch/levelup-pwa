@@ -13,6 +13,8 @@ const KEYS = {
   user:         'levelup_user',
   badHabits:    'levelup_bad_habits',
   badHabitLogs: 'levelup_bad_habit_logs',
+  projects:     'levelup_projects',
+  projectTasks: 'levelup_project_tasks',
 };
 
 function load(key, fallback = []) {
@@ -365,4 +367,91 @@ export function insertBadHabitLog(habitId, date) {
 
 export function deleteBadHabitLog(habitId, date) {
   save(KEYS.badHabitLogs, load(KEYS.badHabitLogs).filter(l => !(l.habitId === habitId && l.logDate === date)));
+}
+
+// ── Projects ───────────────────────────────────────────────────────────────────
+
+export function getProjects() {
+  return load(KEYS.projects);
+}
+
+export function getProjectsForGoal(goalId) {
+  return load(KEYS.projects)
+    .filter(p => p.goalId === goalId)
+    .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+}
+
+export function getProject(id) {
+  return load(KEYS.projects).find(p => p.id === id) || null;
+}
+
+export function insertProject(p) {
+  const projects = load(KEYS.projects);
+  const id = nextId(projects);
+  projects.push({
+    id,
+    goalId: p.goalId,
+    name: String(p.name || '').slice(0, 100),
+    description: String(p.description || ''),
+    status: p.status || 'active',
+    orderIndex: p.orderIndex || 0,
+    createdAt: nowStr(),
+  });
+  save(KEYS.projects, projects);
+  return id;
+}
+
+export function updateProject(id, updates) {
+  const projects = load(KEYS.projects);
+  const idx = projects.findIndex(p => p.id === id);
+  if (idx !== -1) { projects[idx] = { ...projects[idx], ...updates }; save(KEYS.projects, projects); }
+}
+
+export function deleteProject(id) {
+  save(KEYS.projects,     load(KEYS.projects).filter(p => p.id !== id));
+  save(KEYS.projectTasks, load(KEYS.projectTasks).filter(t => t.projectId !== id));
+}
+
+export function deleteProjectsForGoal(goalId) {
+  const toDelete = new Set(load(KEYS.projects).filter(p => p.goalId === goalId).map(p => p.id));
+  save(KEYS.projects,     load(KEYS.projects).filter(p => p.goalId !== goalId));
+  save(KEYS.projectTasks, load(KEYS.projectTasks).filter(t => !toDelete.has(t.projectId)));
+}
+
+// ── Project Tasks ──────────────────────────────────────────────────────────────
+
+export function getAllProjectTasks() {
+  return load(KEYS.projectTasks);
+}
+
+export function getTasksForProject(projectId) {
+  return load(KEYS.projectTasks)
+    .filter(t => t.projectId === projectId)
+    .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+}
+
+export function insertProjectTask(t) {
+  const tasks = load(KEYS.projectTasks);
+  const id = nextId(tasks);
+  tasks.push({
+    id,
+    projectId: t.projectId,
+    name: String(t.name || '').slice(0, 200),
+    completed: 0,
+    dueDate: t.dueDate || null,
+    orderIndex: t.orderIndex || 0,
+    createdAt: nowStr(),
+  });
+  save(KEYS.projectTasks, tasks);
+  return id;
+}
+
+export function updateProjectTask(id, updates) {
+  const tasks = load(KEYS.projectTasks);
+  const idx = tasks.findIndex(t => t.id === id);
+  if (idx !== -1) { tasks[idx] = { ...tasks[idx], ...updates }; save(KEYS.projectTasks, tasks); }
+}
+
+export function deleteProjectTask(id) {
+  save(KEYS.projectTasks, load(KEYS.projectTasks).filter(t => t.id !== id));
 }

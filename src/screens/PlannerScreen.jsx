@@ -3,17 +3,26 @@ import {
   getPlannerItemsForDate, insertPlannerItem, updatePlannerItemCompleted,
   updatePlannerItemStartTime, deletePlannerItem, getPlannerItemsForSource,
   getTodos, insertTodo,
-  getBadHabits, getBadHabitLogsForDate, insertBadHabit, deleteBadHabit,
-  insertBadHabitLog, deleteBadHabitLog,
-  insertCompletion, deleteTodo, insertPointLog, deletePointLogEntry,
+  insertCompletion, deleteTodo, insertPointLog,
   getActionById, getGoal, getCompletionForActionDate, getTodayPoints,
 } from '../utils/storage';
 import { autoPopulatePlannerForDate } from '../utils/plannerUtils';
-import { cancelPlannerNotification, schedulePlannerItemNotification } from '../utils/notifications';
-import { todayString, formatDateFull, formatTime, timeFromDate, addDays } from '../utils/dateHelpers';
+import { cancelPlannerNotification } from '../utils/notifications';
+import { todayString, formatDateFull, formatTime, addDays } from '../utils/dateHelpers';
 import BottomSheet from '../components/BottomSheet';
 
-// ── Planner item row (goal actions + custom/todo items) ──────────────────────
+// Source pill colors per type
+function SourcePill({ sourceType }) {
+  if (sourceType === 'action') {
+    return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-success/20 text-success flex-shrink-0">Goal</span>;
+  }
+  if (sourceType === 'todo') {
+    return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/20 text-primary flex-shrink-0">To-Do</span>;
+  }
+  return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-textMuted/20 text-textMuted flex-shrink-0">Custom</span>;
+}
+
+// ── Planner item row ──────────────────────────────────────────────────────────
 
 function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onTimeChange, onTimeSave, onComplete, onDelete }) {
   const isEditing = editingTimeId === item.id;
@@ -30,8 +39,6 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
     if (swipeX < -50) { /* keep revealed */ }
     else { setSwipeX(0); startX.current = null; }
   }
-
-  const isAction = item.sourceType === 'action';
 
   return (
     <div className="relative overflow-hidden">
@@ -50,7 +57,7 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Time column — tappable to edit inline */}
+        {/* Time column */}
         <div className="w-[52px] flex-shrink-0">
           {isEditing ? (
             <input
@@ -72,19 +79,22 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
           )}
         </div>
 
-        {/* Label + optional goal subtitle */}
+        {/* Label + source pill + goal subtitle */}
         <div className="flex-1 min-w-0">
-          <div className={`text-[15px] leading-snug ${item.completed ? 'line-through text-textMuted' : 'text-textPrimary'}`}>
-            {item.label}
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <div className={`text-[15px] leading-snug truncate ${item.completed ? 'line-through text-textMuted' : 'text-textPrimary'}`}>
+              {item.label}
+            </div>
+            <SourcePill sourceType={item.sourceType} />
           </div>
-          {isAction && item.goalTitle && (
-            <div className="text-[11px] text-textSecondary mt-0.5">{item.goalTitle}</div>
+          {item.sourceType === 'action' && item.goalTitle && (
+            <div className="text-[11px] text-textSecondary">{item.goalTitle}</div>
           )}
         </div>
 
         {/* Point badge */}
         <span className={`text-[13px] font-bold flex-shrink-0 ${item.completed ? 'text-textMuted' : 'text-success'}`}>
-          +{item.pointValue || (item.sourceType === 'todo' ? 10 : 5)}
+          +{item.pointValue || 10}
         </span>
 
         {/* Completion checkbox */}
@@ -101,62 +111,17 @@ function PlannerItemRow({ item, editingTimeId, editingTimeValue, onTimeEdit, onT
   );
 }
 
-// ── Bad Habit row (Avoid Today section) ─────────────────────────────────────
-
-function BadHabitRow({ habit, logged, onLog, onDelete }) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  if (confirmDelete) {
-    return (
-      <div className="flex items-center justify-between py-3 gap-3">
-        <span className="text-[14px] text-textSecondary flex-1">Delete "{habit.name}"?</span>
-        <button onClick={() => onDelete(habit.id)} className="text-destructive font-bold text-[13px] px-3 py-1.5 rounded-lg border border-destructive">Delete</button>
-        <button onClick={() => setConfirmDelete(false)} className="text-textSecondary text-[13px] px-3 py-1.5">Cancel</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-3 py-3">
-      <div className="flex-1 min-w-0">
-        <div className="text-[15px] text-textPrimary font-medium truncate">{habit.name}</div>
-        <div className="text-[12px] text-warning font-semibold mt-0.5">−{habit.pointValue} pts</div>
-      </div>
-      {logged ? (
-        <button
-          onClick={() => onLog(habit)}
-          className="text-[13px] font-semibold px-3 py-1.5 rounded-lg bg-warning/20 text-warning"
-        >
-          Logged ✓
-        </button>
-      ) : (
-        <button
-          onClick={() => onLog(habit)}
-          className="text-[13px] font-semibold text-white px-3.5 py-1.5 rounded-lg bg-warning"
-        >
-          Did it
-        </button>
-      )}
-      <button onClick={() => setConfirmDelete(true)} className="text-textMuted text-base w-7 flex-shrink-0 flex items-center justify-center">✕</button>
-    </div>
-  );
-}
-
 // ── Main screen ──────────────────────────────────────────────────────────────
 
 export default function PlannerScreen() {
   const today = todayString();
   const [selectedDate, setSelectedDate] = useState(today);
   const [items, setItems] = useState([]);
-  const [badHabits, setBadHabits] = useState([]);
-  const [loggedBadHabitIds, setLoggedBadHabitIds] = useState(new Set());
   const [todayPts, setTodayPts] = useState(0);
 
-  // Inline time editing
   const [editingTimeId, setEditingTimeId] = useState(null);
   const [editingTimeValue, setEditingTimeValue] = useState('');
 
-  // Add modal
   const [addStep, setAddStep] = useState(null);
   const [todoSources, setTodoSources] = useState([]);
   const [pendingTodo, setPendingTodo] = useState(null);
@@ -164,12 +129,6 @@ export default function PlannerScreen() {
   const [customLabel, setCustomLabel] = useState('');
   const [customTime, setCustomTime] = useState('');
 
-  // Bad habit form
-  const [showAddBadHabit, setShowAddBadHabit] = useState(false);
-  const [newBadHabitName, setNewBadHabitName] = useState('');
-  const [newBadHabitPoints, setNewBadHabitPoints] = useState('15');
-
-  // Remove confirm
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   useEffect(() => {
@@ -179,7 +138,6 @@ export default function PlannerScreen() {
 
   function loadData() {
     const rawItems = getPlannerItemsForDate(selectedDate).map(item => {
-      // Enrich action items that don't have goalTitle stored (backward compat)
       if (item.sourceType === 'action' && !item.goalTitle) {
         const action = getActionById(item.sourceId);
         if (action) {
@@ -190,13 +148,8 @@ export default function PlannerScreen() {
       return item;
     });
     setItems(rawItems);
-    setBadHabits(getBadHabits());
-    const logs = getBadHabitLogsForDate(selectedDate);
-    setLoggedBadHabitIds(new Set(logs.map(l => l.habitId)));
     setTodayPts(getTodayPoints(today));
   }
-
-  // ── Planner item complete ──
 
   function handleComplete(item) {
     updatePlannerItemCompleted(item.id, true);
@@ -210,19 +163,15 @@ export default function PlannerScreen() {
           insertPointLog({ sourceType: 'action', sourceId: action.id, points: action.pointValue, logDate: selectedDate });
         }
       }
-    } else if (item.sourceType === 'todo') {
-      if (item.sourceId) deleteTodo(item.sourceId);
-      insertPointLog({ sourceType: 'planner', sourceId: item.id, points: 10, logDate: selectedDate });
     } else {
-      // custom or legacy habit
-      insertPointLog({ sourceType: 'planner', sourceId: item.id, points: item.pointValue || 5, logDate: selectedDate });
+      // todo and custom both award 10pts and delete the underlying todo
+      if (item.sourceId) deleteTodo(item.sourceId);
+      insertPointLog({ sourceType: 'planner', sourceId: item.id, points: item.pointValue || 10, logDate: selectedDate });
     }
 
     cancelPlannerNotification(item.notificationId);
     loadData();
   }
-
-  // ── Inline time edit ──
 
   function handleTimeEdit(itemId, currentTime) {
     setEditingTimeId(itemId);
@@ -236,8 +185,6 @@ export default function PlannerScreen() {
     loadData();
   }
 
-  // ── Remove planner item ──
-
   function handleDelete(item) { setDeleteConfirm(item); }
 
   function confirmRemove() {
@@ -246,36 +193,6 @@ export default function PlannerScreen() {
     setDeleteConfirm(null);
     loadData();
   }
-
-  // ── Bad habits ──
-
-  function handleBadHabitLog(habit) {
-    if (loggedBadHabitIds.has(habit.id)) {
-      deleteBadHabitLog(habit.id, selectedDate);
-      deletePointLogEntry('bad_habit', habit.id, selectedDate);
-    } else {
-      insertBadHabitLog(habit.id, selectedDate);
-      insertPointLog({ sourceType: 'bad_habit', sourceId: habit.id, points: -Math.abs(habit.pointValue), logDate: selectedDate });
-    }
-    loadData();
-  }
-
-  function handleDeleteBadHabit(id) {
-    deleteBadHabit(id);
-    loadData();
-  }
-
-  function handleAddBadHabit() {
-    const name = newBadHabitName.trim();
-    if (!name) return;
-    insertBadHabit({ name, pointValue: newBadHabitPoints });
-    setNewBadHabitName('');
-    setNewBadHabitPoints('15');
-    setShowAddBadHabit(false);
-    loadData();
-  }
-
-  // ── Add modal ──
 
   function openAddModal() { setAddStep('options'); }
 
@@ -314,24 +231,22 @@ export default function PlannerScreen() {
   function handleAddCustom() {
     const label = customLabel.trim();
     if (!label) return;
-    // Creates a todo + a planner item linked to it
     const todoId = insertTodo({ label });
     insertPlannerItem({
       planDate: selectedDate, label,
-      startTime: customTime || null, sourceType: 'todo', sourceId: todoId,
+      startTime: customTime || null, sourceType: 'custom', sourceId: todoId,
       notificationId: null, notificationTime: null, pointValue: 10,
     });
     closeAddModal();
     loadData();
   }
 
-  // ── Derived state ──
-
-  const goalActions = items.filter(i => i.sourceType === 'action');
-  const customItems  = items.filter(i => i.sourceType !== 'action');
-  const doneCount    = items.filter(i => i.completed).length;
-
-  const sharedRowProps = { editingTimeId, editingTimeValue, onTimeEdit: handleTimeEdit, onTimeChange: setEditingTimeValue, onTimeSave: handleTimeSave, onComplete: handleComplete, onDelete: handleDelete };
+  const doneCount = items.filter(i => i.completed).length;
+  const sharedRowProps = {
+    editingTimeId, editingTimeValue,
+    onTimeEdit: handleTimeEdit, onTimeChange: setEditingTimeValue, onTimeSave: handleTimeSave,
+    onComplete: handleComplete, onDelete: handleDelete,
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -359,38 +274,17 @@ export default function PlannerScreen() {
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 pt-2 pb-6">
 
-          {/* Goal Actions */}
-          {goalActions.length > 0 && (
-            <div className="mb-4">
-              <div className="section-title">Goal Actions</div>
-              <div className="bg-card rounded-xl border border-border overflow-hidden">
-                {goalActions.map((item, i) => (
-                  <div key={item.id}>
-                    {i > 0 && <div className="h-px bg-border" />}
-                    <PlannerItemRow item={item} {...sharedRowProps} />
-                  </div>
-                ))}
-              </div>
+          {/* Unified timeline */}
+          {items.length > 0 ? (
+            <div className="bg-card rounded-xl border border-border overflow-hidden mb-4">
+              {items.map((item, i) => (
+                <div key={item.id}>
+                  {i > 0 && <div className="h-px bg-border" />}
+                  <PlannerItemRow item={item} {...sharedRowProps} />
+                </div>
+              ))}
             </div>
-          )}
-
-          {/* Custom / To-Do items */}
-          {customItems.length > 0 && (
-            <div className="mb-4">
-              <div className="section-title">Tasks</div>
-              <div className="bg-card rounded-xl border border-border overflow-hidden">
-                {customItems.map((item, i) => (
-                  <div key={item.id}>
-                    {i > 0 && <div className="h-px bg-border" />}
-                    <PlannerItemRow item={item} {...sharedRowProps} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Empty state */}
-          {items.length === 0 && (
+          ) : (
             <div className="flex flex-col items-center py-10">
               <div className="text-5xl mb-3">📋</div>
               <div className="text-textMuted text-[14px] font-semibold">Goal actions appear here automatically</div>
@@ -398,33 +292,7 @@ export default function PlannerScreen() {
             </div>
           )}
 
-          <button onClick={openAddModal} className="dashed-btn w-full mb-6">+ Add to Plan</button>
-
-          {/* Avoid Today */}
-          <div>
-            <div className="section-title">Avoid Today</div>
-            {badHabits.length > 0 && (
-              <div className="card mb-2">
-                {badHabits.map((habit, i) => (
-                  <div key={habit.id}>
-                    {i > 0 && <div className="h-px bg-border" />}
-                    <BadHabitRow
-                      habit={habit}
-                      logged={loggedBadHabitIds.has(habit.id)}
-                      onLog={handleBadHabitLog}
-                      onDelete={handleDeleteBadHabit}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-            {badHabits.length === 0 && (
-              <div className="card text-center py-4 mb-2">
-                <div className="text-textMuted text-[13px]">Track things you want to avoid — each slip deducts points.</div>
-              </div>
-            )}
-            <button onClick={() => setShowAddBadHabit(true)} className="dashed-btn w-full">+ Add Bad Habit</button>
-          </div>
+          <button onClick={openAddModal} className="dashed-btn w-full">+ Add to Plan</button>
         </div>
       </div>
 
@@ -509,27 +377,6 @@ export default function PlannerScreen() {
             <button onClick={handleAddCustom} className="btn-primary w-full">Add to Plan</button>
           </div>
         )}
-      </BottomSheet>
-
-      {/* Add Bad Habit sheet */}
-      <BottomSheet visible={showAddBadHabit} onClose={() => { setShowAddBadHabit(false); setNewBadHabitName(''); setNewBadHabitPoints('15'); }} title="New Bad Habit">
-        <label className="field-label">What to avoid</label>
-        <input
-          type="text"
-          placeholder="e.g. Social media, Alcohol"
-          value={newBadHabitName}
-          onChange={e => setNewBadHabitName(e.target.value)}
-          className="mb-3"
-        />
-        <label className="field-label">Point Penalty</label>
-        <input
-          type="number"
-          placeholder="15"
-          value={newBadHabitPoints}
-          onChange={e => setNewBadHabitPoints(e.target.value)}
-          className="mb-4"
-        />
-        <button onClick={handleAddBadHabit} className="btn-primary w-full">Save</button>
       </BottomSheet>
     </div>
   );

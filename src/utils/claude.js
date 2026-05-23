@@ -109,7 +109,16 @@ Use this exact schema:
   "weeklyPlan": {
     "monday": null, "tuesday": null, "wednesday": null, "thursday": null,
     "friday": null, "saturday": null, "sunday": null
-  }
+  },
+  "projects": [
+    {
+      "name": "string",
+      "description": "string",
+      "tasks": [
+        { "name": "string", "due_date": "YYYY-MM-DD or null" }
+      ]
+    }
+  ]
 }
 
 Rules:
@@ -122,7 +131,8 @@ Rules:
 - For rest days in fitness, set weeklyPlan value to null — do not create actions for rest days
 - Point values: 10-20 easy, 30-50 moderate, 60-100 hard effort per action
 - Generate specific, actionable action names — not generic ones
-- NOTIFICATIONS (critical): Read back through the entire conversation history. If the user confirmed they want reminders and provided a specific time (e.g. "7am", "6:30 AM", "07:00", "8 pm"), set notificationEnabled to true and notificationTime to that exact time in HH:MM 24-hour format on EVERY daily action. Examples: "7am" → "07:00", "6:30pm" → "18:30", "9 AM" → "09:00". If the user said no to reminders or never provided a time, set notificationEnabled to false`;
+- NOTIFICATIONS (critical): Read back through the entire conversation history. If the user confirmed they want reminders and provided a specific time (e.g. "7am", "6:30 AM", "07:00", "8 pm"), set notificationEnabled to true and notificationTime to that exact time in HH:MM 24-hour format on EVERY daily action. Examples: "7am" → "07:00", "6:30pm" → "18:30", "9 AM" → "09:00". If the user said no to reminders or never provided a time, set notificationEnabled to false
+- PROJECTS: If the user agreed to milestone phases/projects during the conversation, populate the projects array with 2–4 phases and 3–6 specific, actionable tasks per phase. If projects were not discussed or the user declined, set projects to []`;
 
   const data = await callEdgeFn({
     messages: [...messages, { role: 'user', content: buildPrompt }],

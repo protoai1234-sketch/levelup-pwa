@@ -10,6 +10,7 @@ import GoalsScreen from './screens/GoalsScreen';
 import AddGoalScreen from './screens/AddGoalScreen';
 import GoalDetailScreen from './screens/GoalDetailScreen';
 import GoalChatScreen from './screens/GoalChatScreen';
+import ProjectDetailScreen from './screens/ProjectDetailScreen';
 import StatsScreen from './screens/StatsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
@@ -81,6 +82,13 @@ export default function App() {
       </AppShell>
     );
   }
+  if (subscreen?.screen === 'project-detail') {
+    return (
+      <AppShell>
+        <ProjectDetailScreen projectId={subscreen.params.projectId} onBack={goBack} />
+      </AppShell>
+    );
+  }
   if (subscreen?.screen === 'settings') {
     return (
       <AppShell>
@@ -98,7 +106,7 @@ export default function App() {
           {tab === 'goals'   && <GoalsScreen onNavigate={navigate} />}
           {tab === 'stats'   && <StatsScreen onSettings={() => navigate('settings')} />}
         </div>
-        <div className="flex-shrink-0" style={{ height: 'calc(50px + env(safe-area-inset-bottom, 0px))' }} />
+        <div className="flex-shrink-0" style={{ height: 'calc(56px + env(safe-area-inset-bottom, 0px))' }} />
         <TabBar active={tab} onChange={handleTabChange} />
       </div>
     </div>

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { getGoals, getAllActionsForGoals, getCompletionsForGoals } from '../utils/storage';
+import { getGoals, getAllActionsForGoals, getCompletionsForGoals, getProjects, getAllProjectTasks } from '../utils/storage';
 import GoalCard from '../components/GoalCard';
 
 export default function GoalsScreen({ onNavigate }) {
   const [goals, setGoals] = useState([]);
   const [actions, setActions] = useState({});
   const [completions, setCompletions] = useState({});
+  const [projectMap, setProjectMap] = useState({});
+  const [taskCountMap, setTaskCountMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [showAddChoice, setShowAddChoice] = useState(false);
 
@@ -17,21 +19,40 @@ export default function GoalsScreen({ onNavigate }) {
     const goalIds = rawGoals.map(g => g.id);
     const allActions = getAllActionsForGoals(goalIds);
     const allCompletions = getCompletionsForGoals(goalIds);
+    const allProjects = getProjects();
+    const allTasks = getAllProjectTasks();
 
     const actionMap = {};
     allActions.forEach(a => {
       if (!actionMap[a.goalId]) actionMap[a.goalId] = [];
       actionMap[a.goalId].push(a);
     });
+
     const completionMap = {};
     allCompletions.forEach(c => {
       if (!completionMap[c.goalId]) completionMap[c.goalId] = [];
       completionMap[c.goalId].push(c);
     });
 
+    const pMap = {};
+    allProjects.forEach(p => {
+      if (!pMap[p.goalId]) pMap[p.goalId] = [];
+      pMap[p.goalId].push(p);
+    });
+    Object.values(pMap).forEach(arr => arr.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)));
+
+    const tCountMap = {};
+    allTasks.forEach(t => {
+      if (!tCountMap[t.projectId]) tCountMap[t.projectId] = { total: 0, done: 0 };
+      tCountMap[t.projectId].total++;
+      if (t.completed) tCountMap[t.projectId].done++;
+    });
+
     setGoals(rawGoals);
     setActions(actionMap);
     setCompletions(completionMap);
+    setProjectMap(pMap);
+    setTaskCountMap(tCountMap);
     setLoading(false);
   }
 
@@ -55,14 +76,16 @@ export default function GoalsScreen({ onNavigate }) {
               goal={goal}
               actions={actions[goal.id] || []}
               completions={completions[goal.id] || []}
-              onPress={() => onNavigate('goal-detail', { goalId: goal.id })}
+              projects={projectMap[goal.id] || []}
+              taskCountMap={taskCountMap}
+              onViewGoal={(id) => onNavigate('goal-detail', { goalId: id })}
+              onViewProject={(id) => onNavigate('project-detail', { projectId: id })}
             />
           ))}
           <button onClick={() => setShowAddChoice(true)} className="btn-primary w-full">+ Add Goal</button>
         </div>
       </div>
 
-      {/* Add goal choice modal */}
       {showAddChoice && (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setShowAddChoice(false)} />
