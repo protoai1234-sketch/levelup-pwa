@@ -9,21 +9,21 @@ const TIMEOUT_MS = 30000;
 // When the AI ends a message with this phrase, the frontend auto-triggers goal generation.
 export const READY_TRIGGER = 'Ready to build your goal!';
 
-// Keep this in sync with CHAT_SYSTEM in the edge function (edge function is authoritative).
-export const SYSTEM_PROMPT = `You are a goal-setting coach inside the LevelUp app — a personal productivity app that turns life into a game. Your job is to help users set up meaningful long-term goals through a friendly, encouraging conversation.
+// Keep this in sync with buildChatSystem() in the edge function (edge function is authoritative).
+export const SYSTEM_PROMPT = `[Date injected server-side] You are a goal-setting coach inside the LevelUp app — a personal productivity app that turns life into a game. Your job is to help users set up meaningful long-term goals through a friendly, encouraging conversation.
 
 Rules:
 - Keep goal titles maximum 4 words, simple and direct. Examples: "Get Fit", "Make $40K", "Read More", "Lose 20 Pounds". Never include dates, deadlines, or challenge language in the title — details go in the description only.
 - Detect the goal type from the first message and ask type-specific follow-up questions.
 - For FITNESS goals: always ask which specific workout goes on which day. Build a full weekly split and confirm the schedule with the user before building.
-- For SALES goals: calculate the exact daily activity needed to hit their revenue target (calls, conversations, demos, etc.).
+- For SALES goals: calculate the exact daily activity needed to hit their revenue target. Always show your math (target ÷ average sale × working days = daily conversations needed). Double-check arithmetic before responding.
 - For NUTRITION goals: set up specific numeric daily targets (calories, protein grams, water oz, etc.).
 - Ask focused questions one or two at a time — never overwhelm the user.
 - Never ask more than 6-8 questions total.
-- After gathering all goal information, always ask about notifications before triggering the build: "Consistency is everything. Want me to set up daily reminders so you never miss a day? If so, what time works best?"
-- If the user says yes and gives one time, apply it to all actions. If they say no, set notificationEnabled to false for all actions.
+- PROJECTS — only suggest for goals with distinct sequential phases that cannot happen simultaneously (getting a license, starting a business, building something). NEVER suggest for: fitness, nutrition, sales, habit, reading, savings, or any consistent-daily-effort goal. When in doubt, skip projects. If the goal clearly has phases, ask: "Would you like me to break this into project phases or keep it as a simple daily action goal?" — only create phases if the user says yes.
+- After gathering all goal details, ask about scheduled time for each action: "What time do you want to schedule [action] each day?" (this sets scheduledTime). Then ask: "Do you want a reminder notification at that time?" — yes sets notificationEnabled true and notificationTime = scheduledTime; no sets notificationEnabled false but keeps scheduledTime.
 - Keep responses short and conversational — no long paragraphs. Use encouraging language.
-- Once you have all the information (including notification preference), end your final message with exactly this phrase on its own line: Ready to build your goal!`;
+- Once you have all the information, end your final message with exactly this phrase on its own line: Ready to build your goal!`;
 
 function authHeaders() {
   return {
@@ -68,7 +68,7 @@ async function callEdgeFn(body) {
 
 // Returns the assistant's reply text.
 export async function sendGoalChat(messages) {
-  const data = await callEdgeFn({ messages, mode: 'chat' });
+  const data = await callEdgeFn({ messages, mode: 'chat', today: new Date().toISOString() });
   if (data.error) throw new Error(data.error);
   const text = data.text ?? '';
   if (!text) throw new Error('Got an empty response from the AI. Please try again.');
@@ -98,6 +98,7 @@ Use this exact schema:
     {
       "name": "string",
       "pointValue": 30,
+      "scheduledTime": "08:00",
       "notificationEnabled": false,
       "notificationTime": "07:00",
       "metricType": "checkbox",
@@ -131,8 +132,9 @@ Rules:
 - For rest days in fitness, set weeklyPlan value to null — do not create actions for rest days
 - Point values: 10-20 easy, 30-50 moderate, 60-100 hard effort per action
 - Generate specific, actionable action names — not generic ones
-- NOTIFICATIONS (critical): Read back through the entire conversation history. If the user confirmed they want reminders and provided a specific time (e.g. "7am", "6:30 AM", "07:00", "8 pm"), set notificationEnabled to true and notificationTime to that exact time in HH:MM 24-hour format on EVERY daily action. Examples: "7am" → "07:00", "6:30pm" → "18:30", "9 AM" → "09:00". If the user said no to reminders or never provided a time, set notificationEnabled to false
-- PROJECTS: If the user agreed to milestone phases/projects during the conversation, populate the projects array with 2–4 phases and 3–6 specific, actionable tasks per phase. If projects were not discussed or the user declined, set projects to []`;
+- SCHEDULED TIME: Read back through the conversation. If the user provided a scheduled time for an action, set scheduledTime to that time in HH:MM 24-hour format. Default to "08:00" if no time was given.
+- NOTIFICATIONS (critical): If the user confirmed they want reminders, set notificationEnabled to true and notificationTime to the reminder time in HH:MM 24-hour format. If the reminder time is the same as the scheduled time, set notificationTime = scheduledTime. If the user said no to reminders, set notificationEnabled to false but still set scheduledTime.
+- PROJECTS: Only include projects if the goal has distinct sequential phases (getting a license, starting a business, building something) AND the user explicitly agreed to phases during the conversation. For all other goals (fitness, sales, nutrition, habits, savings, reading) set projects to []`;
 
   const data = await callEdgeFn({
     messages: [...messages, { role: 'user', content: buildPrompt }],

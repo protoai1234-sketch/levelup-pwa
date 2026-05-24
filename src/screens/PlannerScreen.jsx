@@ -317,8 +317,10 @@ export default function PlannerScreen() {
         <button onClick={() => setSelectedDate(d => addDays(d, -1))} className="text-primary text-[28px] font-light w-9 flex items-center justify-center flex-shrink-0">‹</button>
         <div className="flex-1 flex flex-col items-center">
           <span className="text-[15px] font-bold text-textPrimary leading-tight">{formatDateFull(selectedDate)}</span>
-          {selectedDate !== today && (
-            <button onClick={() => setSelectedDate(today)} className="text-[11px] text-primary font-bold mt-0.5 bg-primary/[0.15] px-2.5 py-0.5 rounded-lg">Today</button>
+          {selectedDate === today ? (
+            <span className="text-[11px] text-success font-bold mt-0.5 bg-success/[0.15] px-2.5 py-0.5 rounded-lg">Today</span>
+          ) : (
+            <button onClick={() => setSelectedDate(today)} className="text-[11px] text-primary font-bold mt-0.5 bg-primary/[0.15] px-2.5 py-0.5 rounded-lg">← Today</button>
           )}
         </div>
         <button onClick={() => setSelectedDate(d => addDays(d, 1))} className="text-primary text-[28px] font-light w-9 flex items-center justify-center flex-shrink-0">›</button>

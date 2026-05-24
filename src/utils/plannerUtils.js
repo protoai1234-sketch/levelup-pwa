@@ -30,7 +30,7 @@ export async function autoPopulatePlannerForDate(date) {
       await insertPlannerItem({
         planDate:    date,
         label:       action.name,
-        startTime:   action.notificationTime || '08:00',
+        startTime:   action.scheduledTime || action.notificationTime || '08:00',
         sourceType:  'action',
         sourceId:    action.id,
         pointValue:  action.pointValue,

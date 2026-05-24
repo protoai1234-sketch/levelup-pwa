@@ -7,8 +7,12 @@ const corsHeaders = {
 const GENERATE_SYSTEM =
   'You must respond with only a valid JSON object. No text before or after. No markdown. No backticks. Just the raw JSON.';
 
-// Coaching system prompt for chat mode
-const CHAT_SYSTEM = `You are a goal-setting coach inside the LevelUp app — a personal productivity app that turns life into a game. Your job is to help users set up meaningful long-term goals through a friendly, encouraging conversation.
+function buildChatSystem(today: string): string {
+  return `Today's date is ${today}. Use this for all date calculations including "next Monday", "end of summer", "next week", "in 3 months", etc.
+
+Always show your math when calculating targets. For sales goals: state the formula clearly (target ÷ average sale × working days = daily conversations needed). Double check your arithmetic before responding. If unsure about a calculation say so and ask the user to confirm.
+
+You are a goal-setting coach inside the LevelUp app — a personal productivity app that turns life into a game. Your job is to help users set up meaningful long-term goals through a friendly, encouraging conversation.
 
 Rules:
 - Keep goal titles maximum 4 words, simple and direct. Examples: "Get Fit", "Make $40K", "Read More", "Lose 20 Pounds". Never include dates, deadlines, or challenge language in the title — details go in the description only.
@@ -18,12 +22,12 @@ Rules:
 - For NUTRITION goals: set up specific numeric daily targets (calories, protein grams, water oz, etc.).
 - Ask focused questions one or two at a time — never overwhelm the user.
 - Never ask more than 6-8 questions total.
-- For FITNESS, SALES, NUTRITION, and FINANCIAL goals: after confirming the goal structure, briefly suggest 2–4 milestone phases to keep them organized (e.g. "Phase 1: Foundation — weeks 1–4", "Phase 2: Build — weeks 5–8"). Ask in one sentence if they'd like to add these as project phases to track progress. If yes, remember the phase names; if no, skip projects.
-- For HABIT and GENERAL goals: skip the projects question entirely.
-- After gathering all goal information (including project phases if applicable), always ask about notifications before triggering the build: "Consistency is everything. Want me to set up daily reminders so you never miss a day? If so, what time works best?"
-- If the user says yes and gives one time, apply it to all actions. If they say no, set notificationEnabled to false for all actions.
+- PROJECTS — only suggest for goals with distinct sequential phases that cannot happen simultaneously (examples: getting a license — study → exam → application; starting a business; building something physical). NEVER suggest projects for: fitness goals, nutrition goals, sales goals, habit goals, church attendance, reading goals, savings goals, or any goal that is just consistent daily effort. When in doubt do NOT suggest projects. If the goal clearly does have phases, ask: "Would you like me to break this into project phases or keep it as a simple daily action goal?" — only create phases if the user says yes.
+- After gathering all goal details, ask about scheduled time for each action: "What time do you want to schedule [action] each day?" — this becomes the scheduledTime.
+- Then ask: "Do you want a reminder notification at that time?" — if yes, set notificationEnabled true and notificationTime = scheduledTime. If no, set notificationEnabled false but keep scheduledTime. If they want a reminder at a different time, ask for it separately.
 - Keep responses short and conversational — no long paragraphs. Use encouraging language.
-- Once you have all the information (including notification preference), end your final message with exactly this phrase on its own line: Ready to build your goal!`;
+- Once you have all the information (including scheduled time and notification preference), end your final message with exactly this phrase on its own line: Ready to build your goal!`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -31,7 +35,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { messages, mode } = await req.json();
+    const { messages, mode, today } = await req.json();
 
     const apiKey = Deno.env.get('CLAUDE_API_KEY');
     if (!apiKey) {
@@ -42,6 +46,7 @@ Deno.serve(async (req) => {
     }
 
     const isGenerate = mode === 'generate';
+    const todayStr = today ? new Date(today).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -53,7 +58,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
         max_tokens: isGenerate ? 4096 : 1000,
-        system: isGenerate ? GENERATE_SYSTEM : CHAT_SYSTEM,
+        system: isGenerate ? GENERATE_SYSTEM : buildChatSystem(todayStr),
         messages,
       }),
     });

@@ -29,6 +29,7 @@ function mapAction(r) {
   return {
     id: r.id, goalId: r.goal_id, name: r.name,
     pointValue: r.point_value, notificationEnabled: r.notification_enabled || 0,
+    scheduledTime: r.scheduled_time || null,
     notificationTime: r.notification_time || null,
     notificationIds: r.notification_ids || [],
     metricType: r.metric_type || 'checkbox',
@@ -178,6 +179,7 @@ export async function insertAction(a) {
   const { data, error } = await supabase.from('daily_actions').insert({
     user_id: uid(), goal_id: a.goalId, name: a.name,
     point_value: a.pointValue || 30,
+    scheduled_time: a.scheduledTime || null,
     notification_enabled: a.notificationEnabled ? 1 : 0,
     notification_time: a.notificationTime || null,
     notification_ids: a.notificationIds || [],
